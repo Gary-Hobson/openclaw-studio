@@ -8,7 +8,7 @@ import {
 } from "@/lib/clawdbot/config";
 import { deleteAgentArtifacts } from "@/lib/projects/fs.server";
 import { resolveProject } from "@/lib/projects/resolve";
-import { loadStore, saveStore } from "../store";
+import { loadStore, normalizeProjectsStore, saveStore } from "../store";
 
 export const runtime = "nodejs";
 
@@ -52,15 +52,11 @@ export async function DELETE(
     }
 
     const projects = store.projects.filter((project) => project.id !== resolvedProjectId);
-    const activeProjectId =
-      store.activeProjectId === resolvedProjectId
-        ? projects[0]?.id ?? null
-        : store.activeProjectId;
-    const nextStore = {
-      version: 2 as const,
-      activeProjectId,
+    const nextStore = normalizeProjectsStore({
+      version: 2,
+      activeProjectId: store.activeProjectId,
       projects,
-    };
+    });
     saveStore(nextStore);
     return NextResponse.json({ store: nextStore, warnings });
   } catch (err) {

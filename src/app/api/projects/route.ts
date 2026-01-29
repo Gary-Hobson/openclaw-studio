@@ -14,23 +14,9 @@ import type {
 } from "@/lib/projects/types";
 import { ensureGitRepo } from "@/lib/fs/git";
 import { slugifyProjectName } from "@/lib/ids/slugify";
-import { loadStore, saveStore } from "./store";
+import { loadStore, normalizeProjectsStore, saveStore } from "./store";
 
 export const runtime = "nodejs";
-
-const normalizeProjectsStore = (store: ProjectsStore): ProjectsStore => {
-  const projects = Array.isArray(store.projects) ? store.projects : [];
-  const activeProjectId =
-    typeof store.activeProjectId === "string" &&
-    projects.some((project) => project.id === store.activeProjectId)
-      ? store.activeProjectId
-      : projects[0]?.id ?? null;
-  return {
-    version: 2,
-    activeProjectId,
-    projects,
-  };
-};
 
 export async function GET() {
   try {
