@@ -1,10 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Project, ProjectTile, ProjectsStore } from "@/lib/projects/types";
 import {
   resolveProjectOrResponse,
   resolveProjectTileOrResponse,
+  resolveProjectFromParams,
+  resolveProjectTileFromParams,
 } from "@/app/api/projects/resolveResponse";
+
+vi.mock("@/app/api/projects/store", () => ({
+  loadStore: vi.fn(),
+}));
+
+import { loadStore } from "@/app/api/projects/store";
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 const makeTile = (): ProjectTile => ({
   id: "tile-1",
@@ -71,6 +83,67 @@ describe("project API resolve helpers", () => {
 
   it("resolveProjectTileOrResponse returns response for invalid tile", async () => {
     const result = resolveProjectTileOrResponse(makeStore(), "project-1", "missing");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(404);
+      await expect(result.response.json()).resolves.toEqual({
+        error: "Tile not found.",
+      });
+    }
+  });
+
+  it("resolveProjectFromParams returns store and project", async () => {
+    const store = makeStore();
+    vi.mocked(loadStore).mockReturnValue(store);
+
+    const result = await resolveProjectFromParams(Promise.resolve({ projectId: "project-1" }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.store).toBe(store);
+      expect(result.projectId).toBe("project-1");
+      expect(result.project).toEqual(store.projects[0]);
+    }
+  });
+
+  it("resolveProjectFromParams returns response for invalid project", async () => {
+    vi.mocked(loadStore).mockReturnValue(makeStore());
+
+    const result = await resolveProjectFromParams(Promise.resolve({ projectId: "missing" }));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(404);
+      await expect(result.response.json()).resolves.toEqual({
+        error: "Workspace not found.",
+      });
+    }
+  });
+
+  it("resolveProjectTileFromParams returns store and tile", async () => {
+    const store = makeStore();
+    vi.mocked(loadStore).mockReturnValue(store);
+
+    const result = await resolveProjectTileFromParams(
+      Promise.resolve({ projectId: "project-1", tileId: "tile-1" })
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.store).toBe(store);
+      expect(result.projectId).toBe("project-1");
+      expect(result.tileId).toBe("tile-1");
+      expect(result.tile).toEqual(store.projects[0].tiles[0]);
+    }
+  });
+
+  it("resolveProjectTileFromParams returns response for invalid tile", async () => {
+    vi.mocked(loadStore).mockReturnValue(makeStore());
+
+    const result = await resolveProjectTileFromParams(
+      Promise.resolve({ projectId: "project-1", tileId: "missing" })
+    );
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
