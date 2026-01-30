@@ -1,10 +1,10 @@
 # Architecture
 
 ## High-level overview & goals
-This repo is a local-first, single-user Next.js App Router UI for managing Clawdbot/Moltbot agents on a canvas. It provides:
+This repo is a local-first, single-user Next.js App Router UI for managing Moltbot agents on a canvas. It provides:
 - A canvas-based workspace UI for multiple agent tiles.
 - Local persistence for projects/tiles via a JSON store on disk.
-- Integration with the Clawdbot runtime via a WebSocket gateway.
+- Integration with the Moltbot runtime via a WebSocket gateway.
 - Optional Discord channel provisioning for agents.
 
 Primary goals:
@@ -29,7 +29,7 @@ This keeps feature cohesion high while preserving a clear client/server boundary
 - **Canvas UI** (`src/features/canvas`): React Flow canvas, tiles, editor UI, local in-memory state + actions.
 - **Projects** (`src/lib/projects`, `src/app/api/projects`): project/tile models, store persistence, shared store normalization and mutation helpers in `src/app/api/projects/store.ts`, workspace files, heartbeat settings, shared project/tile resolution (`src/lib/projects/resolve.ts`) plus API response helpers in `src/app/api/projects/resolveResponse.ts` (including param-based helpers that load the store), shared sessionKey helpers in `src/lib/projects/sessionKey.ts`, shared workspace file helpers in `src/lib/projects/workspaceFiles.ts`, server-side workspace file read/write helpers in `src/lib/projects/workspaceFiles.server.ts`, agent-canvas path helper in `src/lib/projects/agentWorkspace.ts`, server-side filesystem helpers (`src/lib/projects/fs.server.ts`) including shared agent cleanup. Workspace create/open is handled by `POST /api/projects` in `src/app/api/projects/route.ts` using name-or-path payloads, and tile updates (rename/avatar) share a single client wrapper in `src/lib/projects/client.ts`.
 - **Gateway** (`src/lib/gateway`): WebSocket client for agent runtime (frames, connect, request/response).
-- **Clawdbot config + paths** (`src/lib/clawdbot`): read/write moltbot.json, shared agent list helpers (used by heartbeat routes), shared config update helper for routes, heartbeat defaults, consolidated state/config/.env path resolution (`src/lib/clawdbot/paths.ts`).
+- **Moltbot config + paths** (`src/lib/clawdbot`): read/write moltbot.json, shared agent list helpers (used by heartbeat routes), shared config update helper for routes, heartbeat defaults, consolidated state/config/.env path resolution (`src/lib/clawdbot/paths.ts`).
 - **Discord integration** (`src/lib/discord`, API route): channel provisioning and config binding.
 - **Shared utilities** (`src/lib/*`): env, ids, names, avatars, text parsing, logging, filesystem helpers.
 
@@ -56,7 +56,7 @@ Flow:
 5. Client hydrates store into runtime state.
 
 ### 2) Agent runtime (gateway)
-- **Client-side only**: `GatewayClient` uses WebSocket to connect to the local Clawdbot gateway.
+- **Client-side only**: `GatewayClient` uses WebSocket to connect to the local Moltbot gateway.
 - **API is not in the middle**: UI speaks directly to the gateway for streaming and agent events.
 
 Flow:
@@ -101,10 +101,10 @@ Flow:
 ### C4 Level 1 (System Context)
 ```mermaid
 C4Context
-  title Clawdbot Agent UI - System Context
+  title Moltbot Agent UI - System Context
   Person(user, "User", "Operates agent canvas locally")
-  System(ui, "Clawdbot Agent UI", "Next.js App Router UI")
-  System_Ext(gateway, "Clawdbot Gateway", "WebSocket runtime")
+  System(ui, "Moltbot Agent UI", "Next.js App Router UI")
+  System_Ext(gateway, "Moltbot Gateway", "WebSocket runtime")
   System_Ext(fs, "Local Filesystem", "projects.json, workspace files, moltbot.json")
   System_Ext(discord, "Discord API", "Optional channel provisioning")
 
@@ -117,7 +117,7 @@ C4Context
 ### C4 Level 2 (Containers/Components)
 ```mermaid
 C4Container
-  title Clawdbot Agent UI - Containers
+  title Moltbot Agent UI - Containers
   Person(user, "User")
 
   Container_Boundary(app, "Next.js App") {

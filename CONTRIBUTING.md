@@ -1,16 +1,16 @@
 # Contributing
 
-Thanks for helping improve clawdbot-agent-ui. Please use GitHub Issues for bugs and feature requests.
+Thanks for helping improve moltbot-agent-ui. Please use GitHub Issues for bugs and feature requests.
 
 ## Before you start
-- Install Clawdbot/Moltbot and confirm the gateway runs locally.
+- Install Moltbot and confirm the gateway runs locally.
 - This repo is UI-only and reads config from `~/.clawdbot` or `~/.moltbot`.
 - It does not run or build the gateway from source.
 
 ## Local setup
 ```bash
-git clone https://github.com/<your-org>/clawdbot-agent-ui.git
-cd clawdbot-agent-ui
+git clone https://github.com/grp06/moltbot-agent-ui.git
+cd moltbot-agent-ui
 npm install
 cp .env.example .env
 npm run dev

@@ -1,6 +1,6 @@
-# clawdbot-agent-ui
+# moltbot-agent-ui
 
-Agent Canvas UI for Clawdbot/Moltbot. This is a local-first Next.js UI that talks directly to the Clawdbot gateway and stores workspace state on disk.
+Agent Canvas UI for Moltbot. This is a local-first Next.js UI that talks directly to the Moltbot gateway and stores workspace state on disk.
 
 ## Features
 - Multi-agent canvas for managing local workspaces
@@ -11,20 +11,21 @@ Agent Canvas UI for Clawdbot/Moltbot. This is a local-first Next.js UI that talk
 
 ## Requirements
 - Node.js (LTS recommended)
-- Clawdbot/Moltbot installed and gateway running
+- Moltbot installed and gateway running
 - git in PATH (used when creating workspaces)
 - macOS or Linux; Windows supported via WSL2
 
 ## Quick start (from source)
 ```bash
-git clone https://github.com/<your-org>/clawdbot-agent-ui.git
-cd clawdbot-agent-ui
+git clone https://github.com/grp06/moltbot-agent-ui.git
+cd moltbot-agent-ui
 npm install
 npm run dev
 ```
 Open http://localhost:3000
 
-If you want env overrides, copy the example:
+Env overrides are optional. By default the UI reads config from `~/.clawdbot` or `~/.moltbot`.
+Only create a `.env` if you need to override those defaults:
 ```bash
 cp .env.example .env
 ```
@@ -47,7 +48,7 @@ MOLTBOT_STATE_DIR=~/moltbot-dev npm run dev
 ```
 
 ## Windows (WSL2)
-Run the UI and Clawdbot inside the same WSL2 distro. Use the WSL shell to install Node, run the gateway, and start this UI. Access the UI in a Windows browser at http://localhost:3000.
+Run the UI and Moltbot inside the same WSL2 distro. Use the WSL shell to install Node, run the gateway, and start this UI. Access the UI in a Windows browser at http://localhost:3000.
 
 ## Scripts
 - `npm run dev`
@@ -59,7 +60,7 @@ Run the UI and Clawdbot inside the same WSL2 distro. Use the WSL shell to instal
 - `npm run e2e` (requires `npx playwright install`)
 
 ## Troubleshooting
-- **Missing config**: run the Clawdbot onboarding (`moltbot onboard`) or set `MOLTBOT_CONFIG_PATH`.
+- **Missing config**: run the Moltbot onboarding (`moltbot onboard`) or set `MOLTBOT_CONFIG_PATH`.
 - **Gateway not reachable**: confirm the gateway is running and `NEXT_PUBLIC_GATEWAY_URL` matches the host/port.
 - **Auth errors**: check `gateway.auth.token` in your `moltbot.json`.
 
