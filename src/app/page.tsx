@@ -1291,7 +1291,7 @@ const AgentCanvasPage = () => {
             <HeaderBar
             workspaceLabel={project?.name?.trim() ? project.name : "Workspace"}
             workspacePath={workspacePath || null}
-            hasAnyTiles={Boolean(project?.tiles.length)}
+            hasArchivedTiles={hasArchivedTiles}
             status={status}
             showArchived={showArchived}
             onToggleArchived={() => setShowArchived((prev) => !prev)}
