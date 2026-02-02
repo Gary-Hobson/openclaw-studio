@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import { listPathAutocompleteEntries } from "@/lib/fs/pathAutocomplete";
+import { listPathAutocompleteEntries } from "@/lib/fs.server";
 
 let tempHome: string | null = null;
 

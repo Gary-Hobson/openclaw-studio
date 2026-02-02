@@ -86,7 +86,7 @@ Flow:
 - **Error handling**:
   - API routes return JSON `{ error }` with appropriate status.
   - `fetchJson` throws when `!res.ok`, surfaces errors to UI state.
-- **Filesystem helpers**: shared server filesystem primitives live in `src/lib/fs.server.ts` (safe directory/file creation, idempotent deletes, basic assertions). Feature-specific server modules build on top of these: `src/lib/projects/workspaceFiles.server.ts` provisions and reads/writes workspace files; `src/lib/projects/fs.server.ts` handles cleanup operations. State/config path expansion lives in `src/lib/clawdbot/paths.ts`.
+- **Filesystem helpers**: server-only filesystem utilities live in `src/lib/fs.server.ts` (safe directory/file creation, idempotent deletes, git repo initialization for new workspaces, and home-scoped path autocomplete). Feature-specific server modules build on top of these: `src/lib/projects/workspaceFiles.server.ts` provisions and reads/writes workspace files; `src/lib/projects/fs.server.ts` handles cleanup operations. State/config path expansion lives in `src/lib/clawdbot/paths.ts`.
 - **Projects store normalization**: `src/app/api/projects/store.ts` keeps active project selection consistent, enforces a single workspace, and backfills `workspacePath` + `archivedAt`.
 - **Tracing**: `src/instrumentation.ts` registers `@vercel/otel` for telemetry.
 - **Validation**: request payload validation in API routes; shared project/tile resolution in `src/lib/projects/resolve.server.ts`; typed payloads in `lib/projects/types`.

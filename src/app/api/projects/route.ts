@@ -13,7 +13,7 @@ import type {
   ProjectsStore,
 } from "@/lib/projects/types";
 import { resolveUserPath } from "@/lib/clawdbot/paths";
-import { ensureGitRepo } from "@/lib/fs/git";
+import { ensureGitRepo } from "@/lib/fs.server";
 import { slugifyProjectName } from "@/lib/ids/slugify";
 import { appendProjectToStore, loadStore, normalizeProjectsStore, saveStore } from "./store";
 

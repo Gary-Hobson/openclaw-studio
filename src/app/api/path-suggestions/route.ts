@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { logger } from "@/lib/logger";
-import { listPathAutocompleteEntries } from "@/lib/fs/pathAutocomplete";
+import { listPathAutocompleteEntries } from "@/lib/fs.server";
 
 export const runtime = "nodejs";
 
