@@ -21,21 +21,24 @@ const applyTheme = (mode: ThemeMode) => {
 };
 
 export const ThemeToggle = () => {
+  // Keep SSR + initial hydration stable ("light") to avoid markup mismatch.
   const [theme, setTheme] = useState<ThemeMode>("light");
 
   useEffect(() => {
     const preferred = getPreferredTheme();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(preferred);
     applyTheme(preferred);
   }, []);
 
   const toggleTheme = () => {
-    const next: ThemeMode = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    applyTheme(next);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(THEME_STORAGE_KEY, next);
-    }
+    setTheme((current) => {
+      const next: ThemeMode = current === "dark" ? "light" : "dark";
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(THEME_STORAGE_KEY, next);
+      }
+      return next;
+    });
   };
 
   const isDark = theme === "dark";
