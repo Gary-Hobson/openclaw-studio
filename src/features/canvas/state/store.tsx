@@ -96,7 +96,7 @@ const createRuntimeAgent = (seed: AgentSeed, existing?: AgentTile | null): Agent
     size,
     avatarSeed: seed.avatarSeed ?? existing?.avatarSeed ?? seed.agentId,
     avatarUrl: seed.avatarUrl ?? existing?.avatarUrl ?? null,
-    model: seed.model ?? existing?.model ?? "openai-codex/gpt-5.2-codex",
+    model: seed.model ?? existing?.model ?? null,
     thinkingLevel: seed.thinkingLevel ?? existing?.thinkingLevel ?? "medium",
     status: existing?.status ?? "idle",
     outputLines: existing?.outputLines ?? [],

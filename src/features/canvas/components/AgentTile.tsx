@@ -1,8 +1,14 @@
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentTile as AgentTileType, TileSize } from "@/features/canvas/state/store";
-import { isTraceMarkdown, isToolMarkdown } from "@/lib/text/message-extract";
-import { extractSummaryText } from "@/lib/text/summary";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import {
+  isTraceMarkdown,
+  isToolMarkdown,
+  parseToolMarkdown,
+  stripTraceMarkdown,
+} from "@/lib/text/message-extract";
 import { normalizeAgentName } from "@/lib/names/agentNames";
 import { Shuffle } from "lucide-react";
 import { MAX_TILE_HEIGHT, MIN_TILE_SIZE } from "@/lib/canvasTileDefaults";
@@ -38,6 +44,7 @@ export const AgentTile = ({
   const [nameDraft, setNameDraft] = useState(tile.name);
   const [draftValue, setDraftValue] = useState(tile.draft);
   const draftRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatRef = useRef<HTMLDivElement | null>(null);
   const plainDraftRef = useRef(tile.draft);
   const resizeStateRef = useRef<{
     active: boolean;
@@ -232,28 +239,42 @@ export const AgentTile = ({
         ? "Error"
         : "Waiting for direction";
 
-  const latestUpdate = (() => {
-    const lastResult = tile.lastResult?.trim();
-    if (lastResult) return lastResult;
-    for (let index = tile.outputLines.length - 1; index >= 0; index -= 1) {
-      const line = tile.outputLines[index];
+  const chatItems = useMemo(() => {
+    const items: Array<
+      | { kind: "user"; text: string }
+      | { kind: "assistant"; text: string; live?: boolean }
+      | { kind: "trace"; text: string; live?: boolean }
+      | { kind: "tool"; text: string }
+    > = [];
+    for (const line of tile.outputLines) {
       if (!line) continue;
+      if (isTraceMarkdown(line)) {
+        const text = stripTraceMarkdown(line).trim();
+        if (text) items.push({ kind: "trace", text });
+        continue;
+      }
+      if (isToolMarkdown(line)) {
+        items.push({ kind: "tool", text: line });
+        continue;
+      }
       const trimmed = line.trim();
-      if (!trimmed) continue;
-      if (isTraceMarkdown(trimmed)) continue;
-      if (isToolMarkdown(trimmed)) continue;
-      if (trimmed.startsWith(">")) continue;
-      return trimmed;
+      if (trimmed.startsWith(">")) {
+        const text = trimmed.replace(/^>\s?/, "").trim();
+        if (text) items.push({ kind: "user", text });
+        continue;
+      }
+      items.push({ kind: "assistant", text: line });
     }
-    const latestPreview = tile.latestPreview?.trim();
-    if (latestPreview) return latestPreview;
-    return "No updates yet.";
-  })();
-  const latestSummary =
-    latestUpdate === "No updates yet."
-      ? latestUpdate
-      : extractSummaryText(latestUpdate);
-  const latestDisplay = tile.latestOverride ?? latestSummary;
+    const liveThinking = tile.thinkingTrace?.trim();
+    if (liveThinking) {
+      items.push({ kind: "trace", text: liveThinking, live: true });
+    }
+    const liveStream = tile.streamText?.trim();
+    if (liveStream) {
+      items.push({ kind: "assistant", text: liveStream, live: true });
+    }
+    return items;
+  }, [tile.outputLines, tile.streamText, tile.thinkingTrace]);
 
   const avatarSeed = tile.avatarSeed ?? tile.agentId;
   const resizeHandleClass = isSelected
@@ -261,56 +282,20 @@ export const AgentTile = ({
     : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100";
 
   return (
-    <div data-tile className="group relative flex h-full w-full flex-col gap-3">
-      <div className="flex flex-col gap-3 px-4 pt-4 pb-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex flex-1 flex-col items-center gap-2">
-            <div
-              className={`flex items-center gap-2 rounded-lg border bg-card px-3 py-1 shadow-sm ${
-                isSelected ? "agent-name-selected" : "border-border"
-              }`}
-            >
-              <input
-                className="w-full bg-transparent text-center text-xs font-semibold uppercase tracking-wide text-foreground outline-none"
-                value={nameDraft}
-                onChange={(event) => setNameDraft(event.target.value)}
-                onBlur={() => {
-                  void commitName();
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.currentTarget.blur();
-                  }
-                  if (event.key === "Escape") {
-                    setNameDraft(tile.name);
-                    event.currentTarget.blur();
-                  }
-                }}
-              />
-              <button
-                className="nodrag flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-card"
-                type="button"
-                aria-label="Shuffle name"
-                data-testid="agent-name-shuffle"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onNameShuffle();
-                }}
-              >
-                <Shuffle className="h-3 w-3" />
-              </button>
-            </div>
+    <div data-tile className="group relative flex h-full w-full flex-col">
+      <div className="px-4 pt-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
             <div className="relative">
               <div data-drag-handle>
-              <AgentAvatar
-                seed={avatarSeed}
-                name={tile.name}
-                avatarUrl={tile.avatarUrl ?? null}
-                size={120}
-                isSelected={isSelected}
-              />
-            </div>
+                <AgentAvatar
+                  seed={avatarSeed}
+                  name={tile.name}
+                  avatarUrl={tile.avatarUrl ?? null}
+                  size={96}
+                  isSelected={isSelected}
+                />
+              </div>
               <button
                 className="nodrag absolute -bottom-2 -right-2 flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm hover:bg-card"
                 type="button"
@@ -325,32 +310,152 @@ export const AgentTile = ({
                 <Shuffle className="h-4 w-4" />
               </button>
             </div>
+            <div className="flex flex-col gap-2">
+              <div
+                className={`flex items-center gap-2 rounded-lg border bg-card px-3 py-1 shadow-sm ${
+                  isSelected ? "agent-name-selected" : "border-border"
+                }`}
+              >
+                <input
+                  className="w-full bg-transparent text-center text-xs font-semibold uppercase tracking-wide text-foreground outline-none"
+                  value={nameDraft}
+                  onChange={(event) => setNameDraft(event.target.value)}
+                  onBlur={() => {
+                    void commitName();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.currentTarget.blur();
+                    }
+                    if (event.key === "Escape") {
+                      setNameDraft(tile.name);
+                      event.currentTarget.blur();
+                    }
+                  }}
+                />
+                <button
+                  className="nodrag flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-card"
+                  type="button"
+                  aria-label="Shuffle name"
+                  data-testid="agent-name-shuffle"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onNameShuffle();
+                  }}
+                >
+                  <Shuffle className="h-3 w-3" />
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusColor}`}
+                >
+                  {statusLabel}
+                </span>
+                <button
+                  className="nodrag rounded-lg border border-border px-3 py-2 text-[11px] font-semibold text-muted-foreground hover:bg-card"
+                  type="button"
+                  data-testid="agent-inspect-toggle"
+                  onClick={onInspect}
+                >
+                  Inspect
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="rounded-lg border border-border bg-card px-3 py-2">
-          <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            <span>Latest update</span>
-            <span
-              className={`rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusColor}`}
-            >
-              {statusLabel}
-            </span>
-          </div>
-          <div className="mt-2 text-xs text-foreground whitespace-pre-wrap">
-            {latestDisplay}
+      </div>
+
+      <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4">
+        <div
+          ref={chatRef}
+          className="flex-1 overflow-auto rounded-lg border border-border bg-card p-3"
+          onWheel={(event) => {
+            event.stopPropagation();
+          }}
+          onWheelCapture={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          <div className="flex flex-col gap-3 text-xs text-foreground">
+            {chatItems.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No messages yet.</div>
+            ) : (
+              chatItems.map((item, index) => {
+                if (item.kind === "user") {
+                  return (
+                    <div
+                      key={`chat-${tile.agentId}-user-${index}`}
+                      className="rounded-md bg-muted/70 px-3 py-2 text-foreground"
+                    >
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {`> ${item.text}`}
+                      </ReactMarkdown>
+                    </div>
+                  );
+                }
+                if (item.kind === "trace") {
+                  return (
+                    <details
+                      key={`chat-${tile.agentId}-trace-${index}`}
+                      className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground"
+                      open={Boolean(item.live)}
+                    >
+                      <summary className="cursor-pointer select-none font-semibold">
+                        Thinking trace
+                      </summary>
+                      <div className="agent-markdown mt-1 text-foreground">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {item.text}
+                        </ReactMarkdown>
+                      </div>
+                    </details>
+                  );
+                }
+                if (item.kind === "tool") {
+                  const parsed = parseToolMarkdown(item.text);
+                  const summaryLabel =
+                    parsed.kind === "result" ? "Tool result" : "Tool call";
+                  const summaryText = parsed.label
+                    ? `${summaryLabel}: ${parsed.label}`
+                    : summaryLabel;
+                  return (
+                    <details
+                      key={`chat-${tile.agentId}-tool-${index}`}
+                      className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground"
+                    >
+                      <summary className="cursor-pointer select-none font-semibold">
+                        {summaryText}
+                      </summary>
+                      {parsed.body ? (
+                        <div className="agent-markdown mt-1 text-foreground">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {parsed.body}
+                          </ReactMarkdown>
+                        </div>
+                      ) : null}
+                    </details>
+                  );
+                }
+                return (
+                  <div
+                    key={`chat-${tile.agentId}-assistant-${index}`}
+                    className={`agent-markdown ${
+                      item.live ? "opacity-80" : ""
+                    }`}
+                  >
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {item.text}
+                    </ReactMarkdown>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
-        <div className="mt-2 flex items-end gap-2">
-          <div className="relative">
-            <button
-              className="nodrag rounded-lg border border-border px-3 py-2 text-[11px] font-semibold text-muted-foreground hover:bg-card"
-              type="button"
-              data-testid="agent-inspect-toggle"
-              onClick={onInspect}
-            >
-              Inspect
-            </button>
-          </div>
+
+        <div className="flex items-end gap-2">
           <textarea
             ref={handleDraftRef}
             rows={1}

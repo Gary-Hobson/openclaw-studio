@@ -210,6 +210,44 @@ export const renameGatewayAgent = async (params: {
   return entry;
 };
 
+export const deleteGatewayAgent = async (params: {
+  client: GatewayClient;
+  agentId: string;
+  sessionKey?: string;
+}) => {
+  const snapshot = await params.client.call<GatewayConfigSnapshot>("config.get", {});
+  const baseConfig = isRecord(snapshot.config) ? snapshot.config : {};
+  const list = readAgentList(baseConfig);
+  const nextList = list.filter((entry) => entry.id !== params.agentId);
+  const bindings = Array.isArray(baseConfig.bindings) ? baseConfig.bindings : [];
+  const nextBindings = bindings.filter((binding) => {
+    if (!binding || typeof binding !== "object") return true;
+    const agentId = (binding as Record<string, unknown>).agentId;
+    return agentId !== params.agentId;
+  });
+  const patch: Record<string, unknown> = {};
+  if (nextList.length !== list.length) {
+    patch.agents = { list: nextList };
+  }
+  if (nextBindings.length !== bindings.length) {
+    patch.bindings = nextBindings;
+  }
+  if (Object.keys(patch).length === 0) {
+    return { removed: false, removedBindings: 0 };
+  }
+  await applyGatewayConfigPatch({
+    client: params.client,
+    patch,
+    baseHash: snapshot.hash ?? undefined,
+    exists: snapshot.exists,
+    sessionKey: params.sessionKey,
+  });
+  return {
+    removed: nextList.length !== list.length,
+    removedBindings: bindings.length - nextBindings.length,
+  };
+};
+
 export const updateGatewayHeartbeat = async (params: {
   client: GatewayClient;
   agentId: string;

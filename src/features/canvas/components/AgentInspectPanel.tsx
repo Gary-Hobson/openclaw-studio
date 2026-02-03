@@ -1,9 +1,7 @@
 "use client";
 
 import type React from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AgentTile } from "@/features/canvas/state/store";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
 import {
@@ -12,12 +10,6 @@ import {
   type GatewayConfigSnapshot,
 } from "@/lib/gateway/agentConfig";
 import { invokeGatewayTool } from "@/lib/gateway/tools";
-import {
-  isTraceMarkdown,
-  stripTraceMarkdown,
-  isToolMarkdown,
-  parseToolMarkdown,
-} from "@/lib/text/message-extract";
 import type { GatewayModelChoice } from "@/lib/gateway/models";
 import {
   createWorkspaceFilesState,
@@ -35,7 +27,7 @@ type AgentInspectPanelProps = {
   client: GatewayClient;
   models: GatewayModelChoice[];
   onClose: () => void;
-  onLoadHistory: () => void;
+  onDelete: () => void;
   onModelChange: (value: string | null) => void;
   onThinkingChange: (value: string | null) => void;
 };
@@ -45,7 +37,7 @@ export const AgentInspectPanel = ({
   client,
   models,
   onClose,
-  onLoadHistory,
+  onDelete,
   onModelChange,
   onThinkingChange,
 }: AgentInspectPanelProps) => {
@@ -78,30 +70,6 @@ export const AgentInspectPanel = ({
   const [heartbeatActiveStart, setHeartbeatActiveStart] = useState("08:00");
   const [heartbeatActiveEnd, setHeartbeatActiveEnd] = useState("18:00");
   const [heartbeatAckMaxChars, setHeartbeatAckMaxChars] = useState("300");
-  const outputRef = useRef<HTMLDivElement | null>(null);
-
-  const scrollOutputToBottom = useCallback(() => {
-    const el = outputRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, []);
-
-  const handleOutputWheel = useCallback(
-    (event: React.WheelEvent<HTMLDivElement>) => {
-      const el = outputRef.current;
-      if (!el) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
-      const maxLeft = Math.max(0, el.scrollWidth - el.clientWidth);
-      const nextTop = Math.max(0, Math.min(maxTop, el.scrollTop + event.deltaY));
-      const nextLeft = Math.max(0, Math.min(maxLeft, el.scrollLeft + event.deltaX));
-      el.scrollTop = nextTop;
-      el.scrollLeft = nextLeft;
-    },
-    []
-  );
-
   const extractToolText = useCallback((result: unknown) => {
     if (!result || typeof result !== "object") return "";
     const record = result as Record<string, unknown>;
@@ -123,11 +91,6 @@ export const AgentInspectPanel = ({
     (message: string) => /no such file|enoent/i.test(message),
     []
   );
-
-  useEffect(() => {
-    const raf = requestAnimationFrame(scrollOutputToBottom);
-    return () => cancelAnimationFrame(raf);
-  }, [scrollOutputToBottom, tile.outputLines, tile.streamText]);
 
   const loadWorkspaceFiles = useCallback(async () => {
     setWorkspaceLoading(true);
@@ -403,65 +366,6 @@ export const AgentInspectPanel = ({
   );
   const allowThinking = selectedModel?.reasoning !== false;
 
-  const activityBlocks = useMemo(() => {
-    type ActivityBlock = { user?: string; traces: string[]; tools: string[]; assistant: string[] };
-    const blocks: ActivityBlock[] = [];
-    let current: ActivityBlock | null = null;
-    let traceBuffer: string[] = [];
-    const ensureBlock = () => {
-      if (!current) {
-        current = { traces: [], tools: [], assistant: [] };
-        blocks.push(current);
-      }
-      return current;
-    };
-    const flushTrace = () => {
-      if (current && traceBuffer.length > 0) {
-        current.traces.push(traceBuffer.join("\n"));
-        traceBuffer = [];
-      }
-    };
-    for (const line of tile.outputLines) {
-      if (isTraceMarkdown(line)) {
-        ensureBlock();
-        traceBuffer.push(stripTraceMarkdown(line));
-        continue;
-      }
-      if (isToolMarkdown(line)) {
-        flushTrace();
-        const block = ensureBlock();
-        block.tools.push(line);
-        continue;
-      }
-      flushTrace();
-      const trimmed = line.trim();
-      if (trimmed.startsWith(">")) {
-        const user = trimmed.replace(/^>\s?/, "").trim();
-        current = { user: user || undefined, traces: [], tools: [], assistant: [] };
-        blocks.push(current);
-        continue;
-      }
-      const block = ensureBlock();
-      if (line) {
-        block.assistant.push(line);
-      }
-    }
-    flushTrace();
-    const liveThinking = tile.thinkingTrace?.trim();
-    if (liveThinking) {
-      const block = ensureBlock();
-      block.traces.push(liveThinking);
-    }
-    const liveStream = tile.streamText?.trim();
-    if (liveStream) {
-      const block = ensureBlock();
-      block.assistant.push(liveStream);
-    }
-    return blocks;
-  }, [tile.outputLines, tile.streamText, tile.thinkingTrace]);
-
-  const hasActivity = activityBlocks.length > 0;
-
   return (
     <div className="agent-inspect-panel" data-testid="agent-inspect-panel">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -482,118 +386,6 @@ export const AgentInspectPanel = ({
       </div>
 
       <div className="flex flex-col gap-4 p-4">
-        <section
-          className="rounded-lg bg-card p-4 shadow-sm"
-          data-testid="agent-inspect-activity"
-        >
-          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            <span>Activity</span>
-            <span className="text-[11px] font-semibold uppercase text-muted-foreground">
-              {hasActivity ? "Transcript" : "No activity"}
-            </span>
-          </div>
-          {hasActivity ? (
-            <div
-              ref={outputRef}
-              className="mt-3 max-h-[420px] overflow-auto p-2 text-xs text-foreground"
-              onWheel={handleOutputWheel}
-            >
-              <div className="flex flex-col gap-4">
-                {activityBlocks.map((block, index) => (
-                  <div
-                    key={`${tile.agentId}-activity-${index}`}
-                    className="pb-4 last:pb-0"
-                  >
-                    {block.user ? (
-                      <div className="agent-markdown text-foreground">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {`> ${block.user}`}
-                        </ReactMarkdown>
-                      </div>
-                    ) : null}
-                    {block.traces.length > 0 ? (
-                      <div className="mt-2 flex flex-col gap-2">
-                        {block.traces.map((trace, traceIndex) => (
-                          <details
-                            key={`${tile.agentId}-trace-${index}-${traceIndex}`}
-                            className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground"
-                          >
-                            <summary className="cursor-pointer select-none font-semibold">
-                              Thinking trace
-                            </summary>
-                            <div className="agent-markdown mt-1 text-foreground">
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                {trace}
-                              </ReactMarkdown>
-                            </div>
-                          </details>
-                        ))}
-                      </div>
-                    ) : null}
-                    {block.tools.length > 0 ? (
-                      <div className="mt-2 flex flex-col gap-2">
-                        {block.tools.map((tool, toolIndex) => {
-                          const parsed = parseToolMarkdown(tool);
-                          const summaryLabel =
-                            parsed.kind === "result" ? "Tool result" : "Tool call";
-                          const summaryText = parsed.label
-                            ? `${summaryLabel}: ${parsed.label}`
-                            : summaryLabel;
-                          return (
-                            <details
-                              key={`${tile.agentId}-tool-${index}-${toolIndex}`}
-                              className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground"
-                            >
-                              <summary className="cursor-pointer select-none font-semibold">
-                                {summaryText}
-                              </summary>
-                              {parsed.body ? (
-                                <div className="agent-markdown mt-1 text-foreground">
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {parsed.body}
-                                  </ReactMarkdown>
-                                </div>
-                              ) : null}
-                            </details>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                    {block.assistant.length > 0 ? (
-                      <div className="mt-2 flex flex-col gap-2 text-foreground">
-                        {block.assistant.map((line, lineIndex) => (
-                          <div
-                            key={`${tile.agentId}-assistant-${index}-${lineIndex}`}
-                            className="agent-markdown"
-                          >
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {line}
-                            </ReactMarkdown>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="mt-3">
-              <button
-                className="rounded-lg border border-border px-3 py-2 text-[11px] font-semibold text-muted-foreground hover:bg-card"
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onLoadHistory();
-                }}
-              >
-                Load history
-              </button>
-            </div>
-          )}
-        </section>
-
         <section
           className="flex min-h-[420px] flex-1 flex-col rounded-lg border border-border bg-card p-4"
           data-testid="agent-inspect-files"
@@ -932,6 +724,22 @@ export const AgentInspectPanel = ({
               </button>
             </div>
           </div>
+        </section>
+
+        <section className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-destructive">
+            Delete agent
+          </div>
+          <div className="mt-3 text-[11px] text-muted-foreground">
+            Removes the agent from the gateway config.
+          </div>
+          <button
+            className="mt-3 w-full rounded-lg border border-destructive bg-destructive px-3 py-2 text-xs font-semibold text-destructive-foreground shadow-sm transition hover:brightness-105"
+            type="button"
+            onClick={onDelete}
+          >
+            Delete agent
+          </button>
         </section>
       </div>
     </div>

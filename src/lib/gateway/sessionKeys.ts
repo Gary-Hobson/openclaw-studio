@@ -4,6 +4,12 @@ export const buildAgentMainSessionKey = (agentId: string, mainKey: string) => {
   return `agent:${trimmedAgent}:${trimmedKey}`;
 };
 
+export const buildAgentStudioSessionKey = (agentId: string, sessionId: string) => {
+  const trimmedAgent = agentId.trim();
+  const trimmedSession = sessionId.trim();
+  return `agent:${trimmedAgent}:studio:${trimmedSession}`;
+};
+
 export const parseAgentIdFromSessionKey = (sessionKey: string): string | null => {
   const match = sessionKey.match(/^agent:([^:]+):/);
   return match ? match[1] : null;

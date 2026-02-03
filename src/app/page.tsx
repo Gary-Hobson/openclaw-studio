@@ -14,6 +14,7 @@ import {
   formatThinkingMarkdown,
   isTraceMarkdown,
   extractToolLines,
+  formatToolCallMarkdown,
 } from "@/lib/text/message-extract";
 import {
   buildAgentInstruction,
@@ -40,12 +41,16 @@ import { createRandomAgentName, normalizeAgentName } from "@/lib/names/agentName
 import type { AgentSeed, AgentTile, CanvasTransform } from "@/features/canvas/state/store";
 import type { CronJobSummary } from "@/lib/projects/types";
 import { logger } from "@/lib/logger";
-import { renameGatewayAgent } from "@/lib/gateway/agentConfig";
-import { parseAgentIdFromSessionKey, buildAgentMainSessionKey } from "@/lib/gateway/sessionKeys";
+import { renameGatewayAgent, deleteGatewayAgent } from "@/lib/gateway/agentConfig";
+import {
+  parseAgentIdFromSessionKey,
+  buildAgentStudioSessionKey,
+} from "@/lib/gateway/sessionKeys";
 import { buildAvatarDataUrl } from "@/lib/avatars/multiavatar";
 import { fetchStudioSettings, updateStudioSettings } from "@/lib/studio/client";
 import { resolveGatewayLayout, type StudioAgentLayout } from "@/lib/studio/settings";
 import { BrushCleaning } from "lucide-react";
+import { generateUUID } from "@/lib/gateway/openclaw/uuid";
 // (CANVAS_BASE_ZOOM import removed)
 
 type ChatHistoryMessage = Record<string, unknown>;
@@ -379,10 +384,12 @@ const AgentCanvasPage = () => {
   const [headerOffset, setHeaderOffset] = useState(0);
   const viewportSizeRef = useRef(viewportSize);
   const headerOffsetRef = useRef(headerOffset);
+  const studioSessionIdRef = useRef<string>(generateUUID());
   const thinkingDebugRef = useRef<Set<string>>(new Set());
   const chatRunSeenRef = useRef<Set<string>>(new Set());
   const specialUpdateRef = useRef<Map<string, string>>(new Map());
   const specialUpdateInFlightRef = useRef<Set<string>>(new Set());
+  const toolLinesSeenRef = useRef<Map<string, Set<string>>>(new Map());
   // flowInstance removed (zoom controls live in the bottom-right ReactFlow Controls).
 
   const agents = state.agents;
@@ -502,6 +509,21 @@ const AgentCanvasPage = () => {
       }
     }
     return summary;
+  }, []);
+
+  const markToolLineSeen = useCallback((runId: string | null, line: string) => {
+    if (!runId) return true;
+    const map = toolLinesSeenRef.current;
+    const set = map.get(runId) ?? new Set<string>();
+    if (!map.has(runId)) map.set(runId, set);
+    if (set.has(line)) return false;
+    set.add(line);
+    return true;
+  }, []);
+
+  const clearToolLinesSeen = useCallback((runId?: string | null) => {
+    if (!runId) return;
+    toolLinesSeenRef.current.delete(runId);
   }, []);
 
   const resolveCronJobForTile = useCallback((jobs: CronJobSummary[], tile: AgentTile) => {
@@ -728,7 +750,8 @@ const AgentCanvasPage = () => {
           return { settings: null } as { settings: null };
         }),
       ]);
-      const mainKey = agentsResult.mainKey?.trim() || "main";
+      const sessionId = studioSessionIdRef.current || generateUUID();
+      studioSessionIdRef.current = sessionId;
       const layout =
         settingsResult.settings && gatewayUrl
           ? resolveGatewayLayout(settingsResult.settings, gatewayUrl)?.agents ?? null
@@ -756,7 +779,7 @@ const AgentCanvasPage = () => {
         return {
           agentId: agent.id,
           name,
-          sessionKey: buildAgentMainSessionKey(agent.id, mainKey),
+          sessionKey: buildAgentStudioSessionKey(agent.id, sessionId),
           position,
           size,
           avatarSeed,
@@ -803,6 +826,11 @@ const AgentCanvasPage = () => {
   useEffect(() => {
     headerOffsetRef.current = headerOffset;
   }, [headerOffset]);
+
+  useEffect(() => {
+    if (status !== "connected") return;
+    studioSessionIdRef.current = generateUUID();
+  }, [gatewayUrl, status]);
 
   useEffect(() => {
     if (status !== "connected") return;
@@ -1102,19 +1130,36 @@ const AgentCanvasPage = () => {
     [client, dispatch]
   );
 
-  const handleLoadHistory = useCallback(
-    async (agentId: string) => {
-      await loadTileHistory(agentId);
-    },
-    [loadTileHistory]
-  );
-
   const handleInspectTile = useCallback(
     (agentId: string) => {
       setInspectAgentId(agentId);
       dispatch({ type: "selectAgent", agentId });
     },
     [dispatch]
+  );
+
+  const handleDeleteAgent = useCallback(
+    async (agentId: string) => {
+      const tile = agents.find((entry) => entry.agentId === agentId);
+      if (!tile) return;
+      const confirmed = window.confirm(
+        `Delete ${tile.name}? This removes the agent from the gateway config.`
+      );
+      if (!confirmed) return;
+      try {
+        await deleteGatewayAgent({
+          client,
+          agentId,
+          sessionKey: tile.sessionKey,
+        });
+        setInspectAgentId(null);
+        await loadAgents();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to delete agent.";
+        setError(msg);
+      }
+    },
+    [agents, client, loadAgents, setError]
   );
 
   const shouldAutoLoadHistory = useCallback((tile: AgentTile) => {
@@ -1302,6 +1347,17 @@ const AgentCanvasPage = () => {
         if (typeof nextTextRaw === "string" && isUiMetadataPrefix(nextTextRaw.trim())) {
           return;
         }
+        if (toolLines.length > 0) {
+          for (const line of toolLines) {
+            if (markToolLineSeen(payload.runId ?? null, line)) {
+              dispatch({
+                type: "appendOutput",
+                agentId,
+                line,
+              });
+            }
+          }
+        }
         if (nextThinking) {
           dispatch({
             type: "updateAgent",
@@ -1350,11 +1406,13 @@ const AgentCanvasPage = () => {
         }
         if (toolLines.length > 0) {
           for (const line of toolLines) {
-            dispatch({
-              type: "appendOutput",
-              agentId,
-              line,
-            });
+            if (markToolLineSeen(payload.runId ?? null, line)) {
+              dispatch({
+                type: "appendOutput",
+                agentId,
+                line,
+              });
+            }
           }
         }
         if (
@@ -1385,6 +1443,7 @@ const AgentCanvasPage = () => {
           agentId,
           patch: { streamText: null, thinkingTrace: null },
         });
+        clearToolLinesSeen(payload.runId ?? null);
         return;
       }
 
@@ -1392,6 +1451,7 @@ const AgentCanvasPage = () => {
         if (payload.runId) {
           chatRunSeenRef.current.delete(payload.runId);
         }
+        clearToolLinesSeen(payload.runId ?? null);
         dispatch({
           type: "appendOutput",
           agentId,
@@ -1409,6 +1469,7 @@ const AgentCanvasPage = () => {
         if (payload.runId) {
           chatRunSeenRef.current.delete(payload.runId);
         }
+        clearToolLinesSeen(payload.runId ?? null);
         dispatch({
           type: "appendOutput",
           agentId,
@@ -1427,6 +1488,8 @@ const AgentCanvasPage = () => {
     loadTileHistory,
     state.agents,
     summarizeThinkingMessage,
+    markToolLineSeen,
+    clearToolLinesSeen,
     updateSpecialLatestUpdate,
   ]);
 
@@ -1468,11 +1531,32 @@ const AgentCanvasPage = () => {
         });
         return;
       }
-      if (stream === "tool" && !hasChatEvents) {
+      if (stream === "tool") {
         const phase = typeof data?.phase === "string" ? data.phase : "";
-        if (phase !== "result") return;
         const name = typeof data?.name === "string" ? data.name : "tool";
         const toolCallId = typeof data?.toolCallId === "string" ? data.toolCallId : "";
+        if (phase && phase !== "result") {
+          const args =
+            (data?.arguments as unknown) ??
+            (data?.args as unknown) ??
+            (data?.input as unknown) ??
+            (data?.parameters as unknown) ??
+            null;
+          const line = formatToolCallMarkdown({
+            id: toolCallId || undefined,
+            name,
+            arguments: args,
+          });
+          if (line && markToolLineSeen(payload.runId, line)) {
+            dispatch({
+              type: "appendOutput",
+              agentId: match,
+              line,
+            });
+          }
+          return;
+        }
+        if (phase !== "result") return;
         const result = data?.result;
         const isError = typeof data?.isError === "boolean" ? data.isError : undefined;
         const resultRecord =
@@ -1496,11 +1580,13 @@ const AgentCanvasPage = () => {
           content,
         };
         for (const line of extractToolLines(message)) {
-          dispatch({
-            type: "appendOutput",
-            agentId: match,
-            line,
-          });
+          if (markToolLineSeen(payload.runId, line)) {
+            dispatch({
+              type: "appendOutput",
+              agentId: match,
+              line,
+            });
+          }
         }
         return;
       }
@@ -1538,6 +1624,7 @@ const AgentCanvasPage = () => {
           }
         }
         chatRunSeenRef.current.delete(payload.runId);
+        clearToolLinesSeen(payload.runId);
         dispatch({
           type: "updateAgent",
           agentId: match,
@@ -1554,6 +1641,7 @@ const AgentCanvasPage = () => {
       if (phase === "error") {
         if (tile.runId && tile.runId !== payload.runId) return;
         chatRunSeenRef.current.delete(payload.runId);
+        clearToolLinesSeen(payload.runId);
         dispatch({
           type: "updateAgent",
           agentId: match,
@@ -1567,7 +1655,7 @@ const AgentCanvasPage = () => {
         });
       }
     });
-  }, [client, dispatch, state.agents]);
+  }, [client, clearToolLinesSeen, dispatch, markToolLineSeen, state.agents]);
 
   // Zoom controls are available in the bottom-right of the canvas.
 
@@ -1771,7 +1859,7 @@ const AgentCanvasPage = () => {
             client={client}
             models={gatewayModels}
             onClose={() => setInspectAgentId(null)}
-            onLoadHistory={() => handleLoadHistory(inspectTile.agentId)}
+            onDelete={() => handleDeleteAgent(inspectTile.agentId)}
             onModelChange={(value) =>
               handleModelChange(inspectTile.agentId, inspectTile.sessionKey, value)
             }
