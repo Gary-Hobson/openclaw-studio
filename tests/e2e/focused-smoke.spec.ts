@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-test("loads focused workspace empty state", async ({ page }) => {
+test("loads focused studio empty state", async ({ page }) => {
   await page.route("**/api/studio", async (route, request) => {
     if (request.method() === "PUT") {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ settings: { version: 1, gateway: null, layouts: {}, focused: {} } }),
+        body: JSON.stringify({ settings: { version: 1, gateway: null, focused: {} } }),
       });
       return;
     }
@@ -17,7 +17,7 @@ test("loads focused workspace empty state", async ({ page }) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ settings: { version: 1, gateway: null, layouts: {}, focused: {} } }),
+      body: JSON.stringify({ settings: { version: 1, gateway: null, focused: {} } }),
     });
   });
 

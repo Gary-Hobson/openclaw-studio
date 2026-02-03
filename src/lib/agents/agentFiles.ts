@@ -1,4 +1,4 @@
-export const WORKSPACE_FILE_NAMES = [
+export const AGENT_FILE_NAMES = [
   "AGENTS.md",
   "SOUL.md",
   "IDENTITY.md",
@@ -8,12 +8,12 @@ export const WORKSPACE_FILE_NAMES = [
   "MEMORY.md",
 ] as const;
 
-export type WorkspaceFileName = (typeof WORKSPACE_FILE_NAMES)[number];
+export type AgentFileName = (typeof AGENT_FILE_NAMES)[number];
 
-export const isWorkspaceFileName = (value: string): value is WorkspaceFileName =>
-  WORKSPACE_FILE_NAMES.includes(value as WorkspaceFileName);
+export const isAgentFileName = (value: string): value is AgentFileName =>
+  AGENT_FILE_NAMES.includes(value as AgentFileName);
 
-export const WORKSPACE_FILE_META: Record<WorkspaceFileName, { title: string; hint: string }> = {
+export const AGENT_FILE_META: Record<AgentFileName, { title: string; hint: string }> = {
   "AGENTS.md": {
     title: "AGENTS.md",
     hint: "Operating instructions, priorities, and rules.",
@@ -44,17 +44,17 @@ export const WORKSPACE_FILE_META: Record<WorkspaceFileName, { title: string; hin
   },
 };
 
-export const WORKSPACE_FILE_PLACEHOLDERS: Record<WorkspaceFileName, string> = {
+export const AGENT_FILE_PLACEHOLDERS: Record<AgentFileName, string> = {
   "AGENTS.md": "How should this agent work? Priorities, rules, and habits.",
   "SOUL.md": "Tone, personality, boundaries, and how it should sound.",
-  "IDENTITY.md": "Name, vibe, emoji, and a one‑line identity.",
+  "IDENTITY.md": "Name, vibe, emoji, and a one-line identity.",
   "USER.md": "How should it address you? Preferences and context.",
   "TOOLS.md": "Local tool notes, conventions, and shortcuts.",
   "HEARTBEAT.md": "A tiny checklist for periodic runs.",
   "MEMORY.md": "Durable facts, decisions, and preferences to remember.",
 };
 
-export const createWorkspaceFilesState = () =>
+export const createAgentFilesState = () =>
   Object.fromEntries(
-    WORKSPACE_FILE_NAMES.map((name) => [name, { content: "", exists: false }])
-  ) as Record<WorkspaceFileName, { content: string; exists: boolean }>;
+    AGENT_FILE_NAMES.map((name) => [name, { content: "", exists: false }])
+  ) as Record<AgentFileName, { content: string; exists: boolean }>;

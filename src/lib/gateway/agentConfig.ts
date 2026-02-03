@@ -1,9 +1,9 @@
 import { GatewayResponseError, type GatewayClient } from "@/lib/gateway/GatewayClient";
 import type {
-  ProjectTileHeartbeat,
-  ProjectTileHeartbeatResult,
-  ProjectTileHeartbeatUpdatePayload,
-} from "@/lib/projects/types";
+  AgentHeartbeat,
+  AgentHeartbeatResult,
+  AgentHeartbeatUpdatePayload,
+} from "@/lib/gateway/heartbeat";
 
 export type GatewayConfigSnapshot = {
   config?: Record<string, unknown>;
@@ -85,7 +85,7 @@ const mergeHeartbeat = (defaults: HeartbeatBlock, override: HeartbeatBlock) => {
 const normalizeHeartbeat = (
   defaults: HeartbeatBlock,
   override: HeartbeatBlock
-): ProjectTileHeartbeatResult => {
+): AgentHeartbeatResult => {
   const resolved = mergeHeartbeat(defaults, override);
   const every = coerceString(resolved.every) ?? DEFAULT_EVERY;
   const target = coerceString(resolved.target) ?? DEFAULT_TARGET;
@@ -110,7 +110,7 @@ const readHeartbeatDefaults = (config: Record<string, unknown>): HeartbeatBlock 
   return (defaults?.heartbeat ?? null) as HeartbeatBlock;
 };
 
-const buildHeartbeatOverride = (payload: ProjectTileHeartbeat): Record<string, unknown> => {
+const buildHeartbeatOverride = (payload: AgentHeartbeat): Record<string, unknown> => {
   const nextHeartbeat: Record<string, unknown> = {
     every: payload.every,
     target: payload.target,
@@ -131,7 +131,7 @@ const buildHeartbeatOverride = (payload: ProjectTileHeartbeat): Record<string, u
 export const resolveHeartbeatSettings = (
   config: Record<string, unknown>,
   agentId: string
-): ProjectTileHeartbeatResult => {
+): AgentHeartbeatResult => {
   const list = readAgentList(config);
   const entry = list.find((item) => item.id === agentId) ?? null;
   const defaults = readHeartbeatDefaults(config);
@@ -251,9 +251,9 @@ export const deleteGatewayAgent = async (params: {
 export const updateGatewayHeartbeat = async (params: {
   client: GatewayClient;
   agentId: string;
-  payload: ProjectTileHeartbeatUpdatePayload;
+  payload: AgentHeartbeatUpdatePayload;
   sessionKey?: string;
-}): Promise<ProjectTileHeartbeatResult> => {
+}): Promise<AgentHeartbeatResult> => {
   const snapshot = await params.client.call<GatewayConfigSnapshot>("config.get", {});
   const baseConfig = isRecord(snapshot.config) ? snapshot.config : {};
   const list = readAgentList(baseConfig);

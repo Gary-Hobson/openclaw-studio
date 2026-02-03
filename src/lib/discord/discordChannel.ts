@@ -1,6 +1,6 @@
 import fs from "node:fs";
 
-import { slugifyProjectName } from "../ids/slugify";
+import { slugifyName } from "../ids/slugify";
 import { loadClawdbotConfig, saveClawdbotConfig } from "../clawdbot/config";
 import { resolveClawdbotEnvPath } from "@/lib/clawdbot/paths";
 
@@ -222,7 +222,7 @@ export const createDiscordChannelForAgent = async ({
   }
   const { config, configPath } = loadConfig();
   const resolvedGuildId = resolveGuildId(config, guildId);
-  const channelName = slugifyProjectName(agentName);
+  const channelName = slugifyName(agentName);
   const warnings: string[] = [];
   ensureWorkspaceDir(workspaceDir);
   const addedAgent = ensureAgentConfig(config, agentId, agentName, workspaceDir);

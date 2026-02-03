@@ -1,12 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentWorkspacePanel } from "@/features/agents/components/AgentWorkspacePanel";
+import { AgentChatPanel } from "@/features/agents/components/AgentChatPanel";
 import { AgentInspectPanel } from "@/features/agents/components/AgentInspectPanel";
 import { FleetSidebar } from "@/features/agents/components/FleetSidebar";
 import { HeaderBar } from "@/features/agents/components/HeaderBar";
 import { ConnectionPanel } from "@/features/agents/components/ConnectionPanel";
-import { MIN_AGENT_PANEL_SIZE } from "@/lib/agentPanelDefaults";
 import {
   extractText,
   extractThinking,
@@ -38,10 +37,10 @@ import {
   getAgentSummaryPatch,
   getChatSummaryPatch,
 } from "@/features/agents/state/summary";
-import { fetchCronJobs } from "@/lib/projects/client";
+import { fetchCronJobs } from "@/lib/cron/client";
 import { createRandomAgentName, normalizeAgentName } from "@/lib/names/agentNames";
 import type { AgentStoreSeed, AgentState } from "@/features/agents/state/store";
-import type { CronJobSummary } from "@/lib/projects/types";
+import type { CronJobSummary } from "@/lib/cron/types";
 import { logger } from "@/lib/logger";
 import { renameGatewayAgent, deleteGatewayAgent } from "@/lib/gateway/agentConfig";
 import {
@@ -51,11 +50,7 @@ import {
 } from "@/lib/gateway/sessionKeys";
 import { buildAvatarDataUrl } from "@/lib/avatars/multiavatar";
 import { fetchStudioSettings, updateStudioSettings } from "@/lib/studio/client";
-import {
-  resolveFocusedPreference,
-  resolveGatewayLayout,
-  type StudioAgentLayout,
-} from "@/lib/studio/settings";
+import { resolveFocusedPreference } from "@/lib/studio/settings";
 import { generateUUID } from "@/lib/gateway/openclaw/uuid";
 
 type ChatHistoryMessage = Record<string, unknown>;
@@ -136,23 +131,6 @@ type StatusSummary = {
 
 const SPECIAL_UPDATE_HEARTBEAT_RE = /\bheartbeat\b/i;
 const SPECIAL_UPDATE_CRON_RE = /\bcron\b/i;
-const DEFAULT_AGENT_PANEL_GAP = { x: 48, y: 56 };
-
-const rectsOverlap = (
-  a: { x: number; y: number; width: number; height: number },
-  b: { x: number; y: number; width: number; height: number },
-  padding = 0
-) => {
-  const ax = a.x - padding;
-  const ay = a.y - padding;
-  const aw = a.width + padding * 2;
-  const ah = a.height + padding * 2;
-  const bx = b.x;
-  const by = b.y;
-  const bw = b.width;
-  const bh = b.height;
-  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
-};
 
 const resolveSpecialUpdateKind = (message: string) => {
   const lowered = message.toLowerCase();
@@ -277,65 +255,6 @@ const resolveThinkingFromAgentStream = (
   return tagged || null;
 };
 
-const buildMissingAgentLayouts = (params: {
-  agentIds: string[];
-  occupiedLayouts?: Record<string, StudioAgentLayout> | null;
-  sizeByAgent?: Record<string, { width: number; height: number }>;
-  avatarSeedByAgent?: Record<string, string | null>;
-  viewportSize: { width: number; height: number };
-  headerOffset: number;
-  defaultSize?: { width: number; height: number };
-}) => {
-  const layouts: Record<string, StudioAgentLayout> = {};
-  const occupiedLayouts = params.occupiedLayouts ?? {};
-  const occupiedRects = Object.values(occupiedLayouts).map((entry) => ({
-    x: entry.position.x,
-    y: entry.position.y,
-    width: entry.size.width,
-    height: entry.size.height,
-  }));
-  const sizeByAgent = params.sizeByAgent ?? {};
-  const avatarSeedByAgent = params.avatarSeedByAgent ?? {};
-  const fallbackSize = params.defaultSize ?? MIN_AGENT_PANEL_SIZE;
-  const sizes = params.agentIds.map((agentId) => sizeByAgent[agentId] ?? fallbackSize);
-  const maxWidth = Math.max(fallbackSize.width, ...sizes.map((size) => size.width));
-  const maxHeight = Math.max(fallbackSize.height, ...sizes.map((size) => size.height));
-  const stepX = maxWidth + DEFAULT_AGENT_PANEL_GAP.x;
-  const stepY = maxHeight + DEFAULT_AGENT_PANEL_GAP.y;
-  const safeX = 32;
-  const safeY = Math.max(32, params.headerOffset + 24);
-  const availableWidth =
-    params.viewportSize.width > 0 ? params.viewportSize.width - safeX * 2 : stepX;
-  const columns = Math.max(1, Math.floor((availableWidth + DEFAULT_AGENT_PANEL_GAP.x) / stepX));
-  const isOccupied = (rect: { x: number; y: number; width: number; height: number }) =>
-    occupiedRects.some((other) => rectsOverlap(rect, other, 24));
-
-  let cursor = 0;
-  for (const agentId of params.agentIds) {
-    const size = sizeByAgent[agentId] ?? fallbackSize;
-    while (true) {
-      const col = cursor % columns;
-      const row = Math.floor(cursor / columns);
-      cursor += 1;
-      const screen = {
-        x: safeX + col * stepX,
-        y: safeY + row * stepY,
-      };
-      const position = screen;
-      const rect = { x: position.x, y: position.y, width: size.width, height: size.height };
-      if (isOccupied(rect)) continue;
-      layouts[agentId] = {
-        position,
-        size: { width: size.width, height: size.height },
-        avatarSeed: avatarSeedByAgent[agentId] ?? agentId,
-      };
-      occupiedRects.push(rect);
-      break;
-    }
-  }
-  return layouts;
-};
-
 const findLatestHeartbeatResponse = (messages: ChatHistoryMessage[]) => {
   let awaitingHeartbeatReply = false;
   let latestResponse: string | null = null;
@@ -410,14 +329,9 @@ const AgentStudioPage = () => {
   const historyInFlightRef = useRef<Set<string>>(new Set());
   const stateRef = useRef(state);
   const summaryRefreshRef = useRef<number | null>(null);
-  const headerRef = useRef<HTMLDivElement | null>(null);
-  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [gatewayModels, setGatewayModels] = useState<GatewayModelChoice[]>([]);
   const [gatewayModelsError, setGatewayModelsError] = useState<string | null>(null);
   const [inspectAgentId, setInspectAgentId] = useState<string | null>(null);
-  const [headerOffset, setHeaderOffset] = useState(0);
-  const viewportSizeRef = useRef(viewportSize);
-  const headerOffsetRef = useRef(headerOffset);
   const studioSessionIdRef = useRef<string>(generateUUID());
   const thinkingDebugRef = useRef<Set<string>>(new Set());
   const chatRunSeenRef = useRef<Set<string>>(new Set());
@@ -426,7 +340,6 @@ const AgentStudioPage = () => {
   const toolLinesSeenRef = useRef<Map<string, Set<string>>>(new Map());
   const assistantStreamByRunRef = useRef<Map<string, string>>(new Map());
   const focusedSaveTimerRef = useRef<number | null>(null);
-  // flowInstance removed (zoom controls live in the bottom-right ReactFlow Controls).
 
   const agents = state.agents;
   const selectedAgent = useMemo(() => getSelectedAgent(state), [state]);
@@ -703,60 +616,22 @@ const AgentStudioPage = () => {
     if (status !== "connected") return;
     setLoading(true);
     try {
-      const [agentsResult, settingsResult] = await Promise.all([
-        client.call<AgentsListResult>("agents.list", {}),
-        fetchStudioSettings().catch((err) => {
-          logger.error("Failed to load studio settings.", err);
-          return { settings: null } as { settings: null };
-        }),
-      ]);
+      const agentsResult = await client.call<AgentsListResult>("agents.list", {});
       const sessionId = studioSessionIdRef.current || generateUUID();
       studioSessionIdRef.current = sessionId;
-      const layout =
-        settingsResult.settings && gatewayUrl
-          ? resolveGatewayLayout(settingsResult.settings, gatewayUrl)?.agents ?? null
-          : null;
-      const missingAgentIds = agentsResult.agents
-        .map((agent) => agent.id)
-        .filter((agentId) => !layout?.[agentId]);
-      const computedLayouts =
-        missingAgentIds.length > 0
-          ? buildMissingAgentLayouts({
-              agentIds: missingAgentIds,
-              occupiedLayouts: layout,
-              viewportSize: viewportSizeRef.current,
-              headerOffset: headerOffsetRef.current,
-            })
-          : {};
-      const seeds: AgentStoreSeed[] = agentsResult.agents.map((agent, index) => {
-        const layoutEntry = layout?.[agent.id] ?? computedLayouts[agent.id];
-        const position = layoutEntry?.position ?? { x: 80 + index * 36, y: 200 + index * 36 };
-        const size = layoutEntry?.size ?? MIN_AGENT_PANEL_SIZE;
-        const avatarSeed = layoutEntry?.avatarSeed ?? agent.id;
+      const seeds: AgentStoreSeed[] = agentsResult.agents.map((agent) => {
+        const avatarSeed = agent.id;
         const avatarUrl = resolveAgentAvatarUrl(agent);
         const name = resolveAgentName(agent);
         return {
           agentId: agent.id,
           name,
           sessionKey: buildAgentStudioSessionKey(agent.id, sessionId),
-          position,
-          size,
           avatarSeed,
           avatarUrl,
         };
       });
       hydrateAgents(seeds);
-
-      if (gatewayUrl.trim()) {
-        const missingLayouts = computedLayouts;
-        if (Object.keys(missingLayouts).length > 0) {
-          await updateStudioSettings({
-            layouts: {
-              [gatewayUrl.trim()]: { agents: missingLayouts },
-            },
-          });
-        }
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load agents.";
       setError(message);
@@ -765,7 +640,6 @@ const AgentStudioPage = () => {
     }
   }, [
     client,
-    gatewayUrl,
     hydrateAgents,
     resolveAgentAvatarUrl,
     resolveAgentName,
@@ -777,14 +651,6 @@ const AgentStudioPage = () => {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
-
-  useEffect(() => {
-    viewportSizeRef.current = viewportSize;
-  }, [viewportSize]);
-
-  useEffect(() => {
-    headerOffsetRef.current = headerOffset;
-  }, [headerOffset]);
 
   useEffect(() => {
     let cancelled = false;
@@ -881,18 +747,6 @@ const AgentStudioPage = () => {
   }, [setLoading, status]);
 
   useEffect(() => {
-    const node = headerRef.current;
-    if (!node) return;
-    const update = () => {
-      setHeaderOffset(node.offsetHeight || 0);
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
     if (!inspectAgentId) return;
     if (state.selectedAgentId && state.selectedAgentId !== inspectAgentId) {
       setInspectAgentId(null);
@@ -963,10 +817,10 @@ const AgentStudioPage = () => {
   }, [buildAllowedModelKeys, client, status]);
 
   const loadSummarySnapshot = useCallback(async () => {
-    const tiles = stateRef.current.agents;
+    const activeAgents = stateRef.current.agents;
     const sessionKeys = Array.from(
       new Set(
-        tiles
+        activeAgents
           .map((agent) => agent.sessionKey)
           .filter((key): key is string => typeof key === "string" && key.trim().length > 0)
       )
@@ -997,7 +851,7 @@ const AgentStudioPage = () => {
       for (const group of statusSummary.sessions?.byAgent ?? []) {
         addActivity(group.recent);
       }
-      for (const agent of tiles) {
+      for (const agent of activeAgents) {
         const patch: Partial<AgentState> = {};
         const activity = activityByKey.get(agent.sessionKey);
         if (typeof activity === "number") {
@@ -1061,20 +915,6 @@ const AgentStudioPage = () => {
       unsubscribe();
     };
   }, [client, loadSummarySnapshot, refreshHeartbeatLatestUpdate, status]);
-
-  useEffect(() => {
-    const update = () => {
-      setViewportSize({
-        width: window.innerWidth,
-        height: window.innerHeight,
-      });
-    };
-    update();
-    window.addEventListener("resize", update);
-    return () => {
-      window.removeEventListener("resize", update);
-    };
-  }, []);
 
   useEffect(() => {
     if (!state.selectedAgentId) return;
@@ -1779,29 +1619,6 @@ const AgentStudioPage = () => {
     });
   }, [client, clearToolLinesSeen, dispatch, markToolLineSeen, state.agents]);
 
-  const persistAgentLayout = useCallback(
-    async (
-      agentId: string,
-      layout: {
-        position: { x: number; y: number };
-        size: { width: number; height: number };
-        avatarSeed?: string | null;
-      }
-    ) => {
-      if (!gatewayUrl.trim()) return;
-      try {
-        await updateStudioSettings({
-          layouts: {
-            [gatewayUrl.trim()]: { agents: { [agentId]: layout } },
-          },
-        });
-      } catch (err) {
-        logger.error("Failed to save agent layout.", err);
-      }
-    },
-    [gatewayUrl]
-  );
-
   const handleRenameAgent = useCallback(
     async (agentId: string, name: string) => {
       const agent = agents.find((entry) => entry.agentId === agentId);
@@ -1830,21 +1647,14 @@ const AgentStudioPage = () => {
 
   const handleAvatarShuffle = useCallback(
     async (agentId: string) => {
-      const agent = agents.find((entry) => entry.agentId === agentId);
-      if (!agent) return;
       const avatarSeed = crypto.randomUUID();
       dispatch({
         type: "updateAgent",
         agentId,
         patch: { avatarSeed },
       });
-      await persistAgentLayout(agentId, {
-        position: agent.position,
-        size: agent.size,
-        avatarSeed,
-      });
     },
-    [agents, dispatch, persistAgentLayout]
+    [dispatch]
   );
 
   const handleNameShuffle = useCallback(
@@ -1872,7 +1682,7 @@ const AgentStudioPage = () => {
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-background">
       <div className="relative z-10 flex h-full flex-col gap-4 p-4 md:p-6">
-        <div ref={headerRef} className="w-full">
+        <div className="w-full">
           <HeaderBar
             status={status}
             gatewayUrl={gatewayUrl}
@@ -1929,7 +1739,7 @@ const AgentStudioPage = () => {
             data-testid="focused-agent-panel"
           >
             {focusedAgent ? (
-              <AgentWorkspacePanel
+              <AgentChatPanel
                 agent={focusedAgent}
                 isSelected={false}
                 canSend={status === "connected"}

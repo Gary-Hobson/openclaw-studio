@@ -7,16 +7,13 @@ import {
   initialAgentStoreState,
   type AgentStoreSeed,
 } from "@/features/agents/state/store";
-import { MIN_AGENT_PANEL_SIZE } from "@/lib/agentPanelDefaults";
 
 describe("agent store", () => {
-  it("hydrates agent tiles with defaults and selection", () => {
+  it("hydrates agents with defaults and selection", () => {
     const seed: AgentStoreSeed = {
       agentId: "agent-1",
       name: "Agent One",
       sessionKey: "agent:agent-1:main",
-      position: { x: 10, y: 20 },
-      size: { width: 120, height: 80 },
     };
     const next = agentStoreReducer(initialAgentStoreState, {
       type: "hydrateAgents",
@@ -27,29 +24,6 @@ describe("agent store", () => {
     expect(next.agents).toHaveLength(1);
     expect(next.agents[0].status).toBe("idle");
     expect(next.agents[0].outputLines).toEqual([]);
-    expect(next.agents[0].size.width).toBeGreaterThanOrEqual(MIN_AGENT_PANEL_SIZE.width);
-    expect(next.agents[0].size.height).toBeGreaterThanOrEqual(MIN_AGENT_PANEL_SIZE.height);
-  });
-
-  it("clamps agent panel size updates", () => {
-    const seed: AgentStoreSeed = {
-      agentId: "agent-1",
-      name: "Agent One",
-      sessionKey: "agent:agent-1:main",
-      position: { x: 0, y: 0 },
-      size: { width: MIN_AGENT_PANEL_SIZE.width, height: MIN_AGENT_PANEL_SIZE.height },
-    };
-    const hydrated = agentStoreReducer(initialAgentStoreState, {
-      type: "hydrateAgents",
-      agents: [seed],
-    });
-    const next = agentStoreReducer(hydrated, {
-      type: "updateAgent",
-      agentId: "agent-1",
-      patch: { size: { width: 10, height: 10 } },
-    });
-    expect(next.agents[0].size.width).toBeGreaterThanOrEqual(MIN_AGENT_PANEL_SIZE.width);
-    expect(next.agents[0].size.height).toBeGreaterThanOrEqual(MIN_AGENT_PANEL_SIZE.height);
   });
 
   it("tracks_unseen_activity_for_non_selected_agents", () => {
@@ -58,15 +32,11 @@ describe("agent store", () => {
         agentId: "agent-1",
         name: "Agent One",
         sessionKey: "agent:agent-1:main",
-        position: { x: 0, y: 0 },
-        size: { width: 320, height: 320 },
       },
       {
         agentId: "agent-2",
         name: "Agent Two",
         sessionKey: "agent:agent-2:main",
-        position: { x: 340, y: 0 },
-        size: { width: 320, height: 320 },
       },
     ];
     const hydrated = agentStoreReducer(initialAgentStoreState, {
@@ -99,22 +69,16 @@ describe("agent store", () => {
         agentId: "agent-1",
         name: "Agent One",
         sessionKey: "agent:agent-1:main",
-        position: { x: 0, y: 0 },
-        size: { width: 320, height: 320 },
       },
       {
         agentId: "agent-2",
         name: "Agent Two",
         sessionKey: "agent:agent-2:main",
-        position: { x: 340, y: 0 },
-        size: { width: 320, height: 320 },
       },
       {
         agentId: "agent-3",
         name: "Agent Three",
         sessionKey: "agent:agent-3:main",
-        position: { x: 680, y: 0 },
-        size: { width: 320, height: 320 },
       },
     ];
     let state = agentStoreReducer(initialAgentStoreState, {
@@ -164,15 +128,11 @@ describe("agent store", () => {
         agentId: "agent-1",
         name: "Agent One",
         sessionKey: "agent:agent-1:main",
-        position: { x: 0, y: 0 },
-        size: { width: 320, height: 320 },
       },
       {
         agentId: "agent-2",
         name: "Agent Two",
         sessionKey: "agent:agent-2:main",
-        position: { x: 320, y: 0 },
-        size: { width: 320, height: 320 },
       },
     ];
     let state = agentStoreReducer(initialAgentStoreState, {

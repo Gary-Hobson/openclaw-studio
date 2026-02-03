@@ -12,13 +12,13 @@ import {
 import { invokeGatewayTool } from "@/lib/gateway/tools";
 import type { GatewayModelChoice } from "@/lib/gateway/models";
 import {
-  createWorkspaceFilesState,
-  isWorkspaceFileName,
-  WORKSPACE_FILE_META,
-  WORKSPACE_FILE_NAMES,
-  WORKSPACE_FILE_PLACEHOLDERS,
-  type WorkspaceFileName,
-} from "@/lib/projects/workspaceFiles";
+  createAgentFilesState,
+  isAgentFileName,
+  AGENT_FILE_META,
+  AGENT_FILE_NAMES,
+  AGENT_FILE_PLACEHOLDERS,
+  type AgentFileName,
+} from "@/lib/agents/agentFiles";
 
 const HEARTBEAT_INTERVAL_OPTIONS = ["15m", "30m", "1h", "2h", "6h", "12h", "24h"];
 
@@ -45,14 +45,14 @@ export const AgentInspectPanel = ({
   onToolCallingToggle,
   onThinkingTracesToggle,
 }: AgentInspectPanelProps) => {
-  const [workspaceFiles, setWorkspaceFiles] = useState(createWorkspaceFilesState);
-  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceFileName>(
-    WORKSPACE_FILE_NAMES[0]
+  const [agentFiles, setAgentFiles] = useState(createAgentFilesState);
+  const [agentFileTab, setAgentFileTab] = useState<AgentFileName>(
+    AGENT_FILE_NAMES[0]
   );
-  const [workspaceLoading, setWorkspaceLoading] = useState(false);
-  const [workspaceSaving, setWorkspaceSaving] = useState(false);
-  const [workspaceDirty, setWorkspaceDirty] = useState(false);
-  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [agentFilesLoading, setAgentFilesLoading] = useState(false);
+  const [agentFilesSaving, setAgentFilesSaving] = useState(false);
+  const [agentFilesDirty, setAgentFilesDirty] = useState(false);
+  const [agentFilesError, setAgentFilesError] = useState<string | null>(null);
   const [heartbeatLoading, setHeartbeatLoading] = useState(false);
   const [heartbeatSaving, setHeartbeatSaving] = useState(false);
   const [heartbeatDirty, setHeartbeatDirty] = useState(false);
@@ -96,17 +96,17 @@ export const AgentInspectPanel = ({
     []
   );
 
-  const loadWorkspaceFiles = useCallback(async () => {
-    setWorkspaceLoading(true);
-    setWorkspaceError(null);
+  const loadAgentFiles = useCallback(async () => {
+    setAgentFilesLoading(true);
+    setAgentFilesError(null);
     try {
       const sessionKey = agent.sessionKey?.trim();
       if (!sessionKey) {
-        setWorkspaceError("Session key is missing for this agent.");
+        setAgentFilesError("Session key is missing for this agent.");
         return;
       }
       const results = await Promise.all(
-        WORKSPACE_FILE_NAMES.map(async (name) => {
+        AGENT_FILE_NAMES.map(async (name) => {
           const response = await invokeGatewayTool({
             tool: "read",
             sessionKey,
@@ -122,40 +122,40 @@ export const AgentInspectPanel = ({
           return { name, content, exists: true };
         })
       );
-      const nextState = createWorkspaceFilesState();
+      const nextState = createAgentFilesState();
       for (const file of results) {
-        if (!isWorkspaceFileName(file.name)) continue;
+        if (!isAgentFileName(file.name)) continue;
         nextState[file.name] = {
           content: file.content ?? "",
           exists: Boolean(file.exists),
         };
       }
-      setWorkspaceFiles(nextState);
-      setWorkspaceDirty(false);
+      setAgentFiles(nextState);
+      setAgentFilesDirty(false);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to load workspace files.";
-      setWorkspaceError(message);
+        err instanceof Error ? err.message : "Failed to load agent files.";
+      setAgentFilesError(message);
     } finally {
-      setWorkspaceLoading(false);
+      setAgentFilesLoading(false);
     }
   }, [extractToolText, isMissingFileError, agent.sessionKey]);
 
-  const saveWorkspaceFiles = useCallback(async () => {
-    setWorkspaceSaving(true);
-    setWorkspaceError(null);
+  const saveAgentFiles = useCallback(async () => {
+    setAgentFilesSaving(true);
+    setAgentFilesError(null);
     try {
       const sessionKey = agent.sessionKey?.trim();
       if (!sessionKey) {
-        setWorkspaceError("Session key is missing for this agent.");
+        setAgentFilesError("Session key is missing for this agent.");
         return;
       }
       await Promise.all(
-        WORKSPACE_FILE_NAMES.map(async (name) => {
+        AGENT_FILE_NAMES.map(async (name) => {
           const response = await invokeGatewayTool({
             tool: "write",
             sessionKey,
-            args: { path: name, content: workspaceFiles[name].content },
+            args: { path: name, content: agentFiles[name].content },
           });
           if (!response.ok) {
             throw new Error(response.error);
@@ -163,33 +163,33 @@ export const AgentInspectPanel = ({
           return name;
         })
       );
-      const nextState = createWorkspaceFilesState();
-      for (const name of WORKSPACE_FILE_NAMES) {
+      const nextState = createAgentFilesState();
+      for (const name of AGENT_FILE_NAMES) {
         nextState[name] = {
-          content: workspaceFiles[name].content,
+          content: agentFiles[name].content,
           exists: true,
         };
       }
-      setWorkspaceFiles(nextState);
-      setWorkspaceDirty(false);
+      setAgentFiles(nextState);
+      setAgentFilesDirty(false);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to save workspace files.";
-      setWorkspaceError(message);
+        err instanceof Error ? err.message : "Failed to save agent files.";
+      setAgentFilesError(message);
     } finally {
-      setWorkspaceSaving(false);
+      setAgentFilesSaving(false);
     }
-  }, [agent.sessionKey, workspaceFiles]);
+  }, [agent.sessionKey, agentFiles]);
 
-  const handleWorkspaceTabChange = useCallback(
-    (nextTab: WorkspaceFileName) => {
-      if (nextTab === workspaceTab) return;
-      if (workspaceDirty && !workspaceSaving) {
-        void saveWorkspaceFiles();
+  const handleAgentFileTabChange = useCallback(
+    (nextTab: AgentFileName) => {
+      if (nextTab === agentFileTab) return;
+      if (agentFilesDirty && !agentFilesSaving) {
+        void saveAgentFiles();
       }
-      setWorkspaceTab(nextTab);
+      setAgentFileTab(nextTab);
     },
-    [saveWorkspaceFiles, workspaceDirty, workspaceSaving, workspaceTab]
+    [saveAgentFiles, agentFilesDirty, agentFilesSaving, agentFileTab]
   );
 
   const loadHeartbeat = useCallback(async () => {
@@ -335,18 +335,19 @@ export const AgentInspectPanel = ({
     heartbeatTargetMode,
     client,
     agent.agentId,
+    agent.sessionKey,
   ]);
 
   useEffect(() => {
-    void loadWorkspaceFiles();
+    void loadAgentFiles();
     void loadHeartbeat();
-  }, [loadWorkspaceFiles, loadHeartbeat]);
+  }, [loadAgentFiles, loadHeartbeat]);
 
   useEffect(() => {
-    if (!WORKSPACE_FILE_NAMES.includes(workspaceTab)) {
-      setWorkspaceTab(WORKSPACE_FILE_NAMES[0]);
+    if (!AGENT_FILE_NAMES.includes(agentFileTab)) {
+      setAgentFileTab(AGENT_FILE_NAMES[0]);
     }
-  }, [workspaceTab]);
+  }, [agentFileTab]);
 
   const modelOptions = useMemo(
     () =>
@@ -403,22 +404,22 @@ export const AgentInspectPanel = ({
               Brain files
             </div>
             <div className="text-[11px] font-semibold uppercase text-muted-foreground">
-              {workspaceLoading
+              {agentFilesLoading
                 ? "Loading..."
-                : workspaceDirty
+                : agentFilesDirty
                   ? "Saving on tab change"
                   : "All changes saved"}
             </div>
           </div>
-          {workspaceError ? (
+          {agentFilesError ? (
             <div className="mt-3 rounded-lg border border-destructive bg-destructive px-3 py-2 text-xs text-destructive-foreground">
-              {workspaceError}
+              {agentFilesError}
             </div>
           ) : null}
           <div className="mt-4 flex flex-wrap items-end gap-2">
-            {WORKSPACE_FILE_NAMES.map((name) => {
-              const active = name === workspaceTab;
-              const label = WORKSPACE_FILE_META[name].title.replace(".md", "");
+            {AGENT_FILE_NAMES.map((name) => {
+              const active = name === agentFileTab;
+              const label = AGENT_FILE_META[name].title.replace(".md", "");
               return (
                 <button
                   key={name}
@@ -428,7 +429,7 @@ export const AgentInspectPanel = ({
                       ? "border-border bg-background text-foreground shadow-sm"
                       : "border-transparent bg-muted/60 text-muted-foreground hover:bg-muted"
                   }`}
-                  onClick={() => handleWorkspaceTabChange(name)}
+                  onClick={() => handleAgentFileTabChange(name)}
                 >
                   {label}
                 </button>
@@ -439,13 +440,13 @@ export const AgentInspectPanel = ({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-foreground">
-                  {WORKSPACE_FILE_META[workspaceTab].title}
+                  {AGENT_FILE_META[agentFileTab].title}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {WORKSPACE_FILE_META[workspaceTab].hint}
+                  {AGENT_FILE_META[agentFileTab].hint}
                 </div>
               </div>
-              {!workspaceFiles[workspaceTab].exists ? (
+              {!agentFiles[agentFileTab].exists ? (
                 <span className="rounded-md border border-border bg-accent px-2 py-1 text-[10px] font-semibold uppercase text-accent-foreground">
                   new
                 </span>
@@ -453,27 +454,27 @@ export const AgentInspectPanel = ({
             </div>
 
             <textarea
-              className="mt-4 min-h-[220px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground outline-none"
-              value={workspaceFiles[workspaceTab].content}
+              className="mt-4 min-h-[220px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground outline-none"
+              value={agentFiles[agentFileTab].content}
               placeholder={
-                workspaceFiles[workspaceTab].content.trim().length === 0
-                  ? WORKSPACE_FILE_PLACEHOLDERS[workspaceTab]
+                agentFiles[agentFileTab].content.trim().length === 0
+                  ? AGENT_FILE_PLACEHOLDERS[agentFileTab]
                   : undefined
               }
-              disabled={workspaceLoading || workspaceSaving}
+              disabled={agentFilesLoading || agentFilesSaving}
               onChange={(event) => {
                 const value = event.target.value;
-                setWorkspaceFiles((prev) => ({
+                setAgentFiles((prev) => ({
                   ...prev,
-                  [workspaceTab]: { ...prev[workspaceTab], content: value },
+                  [agentFileTab]: { ...prev[agentFileTab], content: value },
                 }));
-                setWorkspaceDirty(true);
+                setAgentFilesDirty(true);
               }}
             />
           </div>
           <div className="mt-4 flex items-center justify-between gap-2 border-t border-border pt-4">
             <div className="text-xs text-muted-foreground">
-              {workspaceDirty ? "Auto-save on tab switch." : "Up to date."}
+              {agentFilesDirty ? "Auto-save on tab switch." : "Up to date."}
             </div>
           </div>
         </section>

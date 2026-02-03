@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ settings: { version: 1, gateway: null, layouts: {} } }),
+        body: JSON.stringify({ settings: { version: 1, gateway: null, focused: {} } }),
       });
       return;
     }
@@ -17,7 +17,7 @@ test.beforeEach(async ({ page }) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ settings: { version: 1, gateway: null, layouts: {} } }),
+      body: JSON.stringify({ settings: { version: 1, gateway: null, focused: {} } }),
     });
   });
 });

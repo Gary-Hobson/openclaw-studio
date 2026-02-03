@@ -13,7 +13,7 @@ import { normalizeAgentName } from "@/lib/names/agentNames";
 import { Shuffle } from "lucide-react";
 import { AgentAvatar } from "./AgentAvatar";
 
-type AgentWorkspacePanelProps = {
+type AgentChatPanelProps = {
   agent: AgentRecord;
   isSelected: boolean;
   canSend: boolean;
@@ -43,7 +43,7 @@ const normalizeAssistantDisplayText = (value: string): string => {
   return normalized.join("\n").trim();
 };
 
-export const AgentWorkspacePanel = ({
+export const AgentChatPanel = ({
   agent,
   isSelected,
   canSend,
@@ -53,7 +53,7 @@ export const AgentWorkspacePanel = ({
   onSend,
   onAvatarShuffle,
   onNameShuffle,
-}: AgentWorkspacePanelProps) => {
+}: AgentChatPanelProps) => {
   const [nameDraft, setNameDraft] = useState(agent.name);
   const [draftValue, setDraftValue] = useState(agent.draft);
   const draftRef = useRef<HTMLTextAreaElement | null>(null);

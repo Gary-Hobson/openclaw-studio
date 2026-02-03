@@ -3,14 +3,12 @@ import { expect, test } from "@playwright/test";
 type StudioSettingsFixture = {
   version: 1;
   gateway: { url: string; token: string } | null;
-  layouts: Record<string, unknown>;
   focused: Record<string, { mode: "focused"; filter: string; selectedAgentId: string | null }>;
 };
 
 const DEFAULT_SETTINGS: StudioSettingsFixture = {
   version: 1,
   gateway: null,
-  layouts: {},
   focused: {},
 };
 
@@ -20,7 +18,6 @@ const createStudioRoute = (
   let settings: StudioSettingsFixture = {
     version: 1,
     gateway: initial.gateway ?? null,
-    layouts: { ...(initial.layouts ?? {}) },
     focused: { ...(initial.focused ?? {}) },
   };
   return async (route: { fulfill: (args: Record<string, unknown>) => Promise<void>; fallback: () => Promise<void> }, request: { method: () => string; postData: () => string | null }) => {
@@ -42,12 +39,6 @@ const createStudioRoute = (
     };
     if ("gateway" in patch) {
       next.gateway = (patch.gateway as StudioSettingsFixture["gateway"]) ?? null;
-    }
-    if (patch.layouts && typeof patch.layouts === "object") {
-      next.layouts = {
-        ...next.layouts,
-        ...(patch.layouts as Record<string, unknown>),
-      };
     }
     if (patch.focused && typeof patch.focused === "object") {
       const focusedPatch = patch.focused as Record<string, Record<string, unknown>>;

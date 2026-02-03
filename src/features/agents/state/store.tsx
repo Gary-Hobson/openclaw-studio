@@ -9,21 +9,14 @@ import {
   type ReactNode,
 } from "react";
 
-import { MAX_AGENT_PANEL_HEIGHT, MIN_AGENT_PANEL_SIZE } from "@/lib/agentPanelDefaults";
-
 export type AgentStatus = "idle" | "running" | "error";
 export type FocusFilter = "all" | "needs-attention" | "running" | "idle";
 export type AgentAttention = "normal" | "needs-attention";
-
-export type AgentPosition = { x: number; y: number };
-export type AgentPanelSize = { width: number; height: number };
 
 export type AgentStoreSeed = {
   agentId: string;
   name: string;
   sessionKey: string;
-  position: AgentPosition;
-  size: AgentPanelSize;
   avatarSeed?: string | null;
   avatarUrl?: string | null;
   model?: string | null;
@@ -78,24 +71,12 @@ const initialState: AgentStoreState = {
   error: null,
 };
 
-const clampAgentPanelHeight = (height: number) =>
-  Math.min(MAX_AGENT_PANEL_HEIGHT, Math.max(MIN_AGENT_PANEL_SIZE.height, height));
-
-const clampAgentPanelWidth = (width: number) => Math.max(MIN_AGENT_PANEL_SIZE.width, width);
-
-const clampAgentPanelSize = (size: AgentPanelSize): AgentPanelSize => ({
-  width: clampAgentPanelWidth(size.width),
-  height: clampAgentPanelHeight(size.height),
-});
-
 const createRuntimeAgentState = (
   seed: AgentStoreSeed,
   existing?: AgentState | null
 ): AgentState => {
-  const size = clampAgentPanelSize(seed.size);
   return {
     ...seed,
-    size,
     avatarSeed: seed.avatarSeed ?? existing?.avatarSeed ?? seed.agentId,
     avatarUrl: seed.avatarUrl ?? existing?.avatarUrl ?? null,
     model: seed.model ?? existing?.model ?? null,
@@ -150,11 +131,7 @@ const reducer = (state: AgentStoreState, action: Action): AgentStoreState => {
         ...state,
         agents: state.agents.map((agent) =>
           agent.agentId === action.agentId
-            ? {
-                ...agent,
-                ...action.patch,
-                size: action.patch.size ? clampAgentPanelSize(action.patch.size) : agent.size,
-              }
+            ? { ...agent, ...action.patch }
             : agent
         ),
       };

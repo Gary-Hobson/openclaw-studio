@@ -5,19 +5,19 @@
 
 When you run multiple agents, you need a place to see what's happening.
 
-OpenClaw Studio is that place. It's the visual interface for the OpenClaw ecosystem—designed for people who coordinate agents in a shared workspace, track long-running tasks, and need to stay oriented when the work gets complex.
+OpenClaw Studio is that place. It's the visual interface for the OpenClaw ecosystem—designed for people who coordinate agents, track long-running tasks, and need to stay oriented when the work gets complex.
 
 Join the Discord: [https://discord.gg/GAr9Qfem](https://discord.gg/GAr9Qfem). I'm also looking for contributors who want to help shape OpenClaw Studio.
 
 The terminal is good for single commands. But agents don't work in single commands. They work in threads. They share context. They produce files that evolve. They run in parallel, and you need to know what's running where.
 
-OpenClaw Studio solves this. It's a Next.js app that connects to your OpenClaw gateway, streams everything live, and edits workspace files through the gateway tool API. The interface is simple enough to feel obvious, powerful enough to handle real work.
+OpenClaw Studio solves this. It's a Next.js app that connects to your OpenClaw gateway, streams everything live, and edits agent files through the gateway tool API. The interface is simple enough to feel obvious, powerful enough to handle real work.
 
 ## What it does
 
 - Shows you every agent at a glance
-- Runs a focused workspace as the active UX (fleet list + primary agent + inspect sidebar)
-- Reads and edits workspace files (AGENTS.md, MEMORY.md, etc.) via the gateway
+- Runs a focused agent-management UI (fleet list + primary agent + inspect sidebar)
+- Reads and edits agent files (AGENTS.md, MEMORY.md, etc.) via the gateway
 - Streams tool output in real time
 - Provisions Discord channels when you need them
 - Stores only UI settings locally—no external database
@@ -47,9 +47,9 @@ Only create a `.env` if you need to override those defaults:
 cp .env.example .env
 ```
 
-## Workspace files
+## Agent files
 
-Workspace files live on the **gateway** and are accessed through `POST /tools/invoke`.
+Agent files live on the **gateway** and are accessed through `POST /tools/invoke`.
 The gateway build must expose the coding tools (`read`, `write`, `edit`, `apply_patch`) on that endpoint.
 If you see `Tool not available: read`, you are running a gateway build that does **not** include coding tools for `/tools/invoke`.
 
@@ -63,7 +63,7 @@ Your gateway config lives in `openclaw.json` in your state directory. Defaults:
 - Config: `~/.openclaw/openclaw.json`
 - Gateway URL: `ws://127.0.0.1:18789`
 
-Studio stores its own settings locally at `~/.openclaw/openclaw-studio/settings.json` (gateway URL/token + layout).
+Studio stores its own settings locally at `~/.openclaw/openclaw-studio/settings.json` (gateway URL/token + focused preferences).
 
 Optional overrides:
 - `OPENCLAW_STATE_DIR`

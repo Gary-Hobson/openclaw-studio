@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "OpenClaw Studio",
-  description: "Standalone focused operator workspace for the Clawdbot gateway.",
+  description: "Focused operator studio for the OpenClaw gateway.",
 };
 
 export default function RootLayout({

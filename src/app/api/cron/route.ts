@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { resolveStateDir } from "@/lib/clawdbot/paths";
 import { logger } from "@/lib/logger";
-import type { CronJobsResult, CronJobSummary, CronPayload, CronSchedule } from "@/lib/projects/types";
+import type { CronJobsResult, CronJobSummary, CronPayload, CronSchedule } from "@/lib/cron/types";
 
 export const runtime = "nodejs";
 

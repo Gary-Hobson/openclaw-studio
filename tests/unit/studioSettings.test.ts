@@ -11,43 +11,16 @@ describe("studio settings normalization", () => {
     const normalized = normalizeStudioSettings(null);
     expect(normalized.version).toBe(1);
     expect(normalized.gateway).toBeNull();
-    expect(normalized.layouts).toEqual({});
     expect(normalized.focused).toEqual({});
   });
 
-  it("normalizes gateway and layout entries", () => {
+  it("normalizes gateway entries", () => {
     const normalized = normalizeStudioSettings({
       gateway: { url: " ws://localhost:18789 ", token: " token " },
-      layouts: {
-        " ws://localhost:18789 ": {
-          agents: {
-            main: {
-              position: { x: 12, y: 24 },
-              size: { width: 480, height: 360 },
-              avatarSeed: "seed",
-            },
-            bad: {
-              position: { x: "nope", y: 0 },
-              size: { width: 1, height: 1 },
-            },
-          },
-        },
-        "": {
-          agents: {
-            main: {
-              position: { x: 1, y: 1 },
-              size: { width: 1, height: 1 },
-            },
-          },
-        },
-      },
     });
 
     expect(normalized.gateway?.url).toBe("ws://localhost:18789");
     expect(normalized.gateway?.token).toBe("token");
-    expect(Object.keys(normalized.layouts)).toEqual(["ws://localhost:18789"]);
-    expect(normalized.layouts["ws://localhost:18789"].agents.main.position.x).toBe(12);
-    expect(normalized.layouts["ws://localhost:18789"].agents.bad).toBeUndefined();
   });
 
   it("normalizes_dual_mode_preferences", () => {
@@ -78,18 +51,8 @@ describe("studio settings normalization", () => {
     });
   });
 
-  it("merges_dual_mode_preferences_without_dropping_layouts", () => {
+  it("merges_dual_mode_preferences", () => {
     const current = normalizeStudioSettings({
-      layouts: {
-        "ws://localhost:18789": {
-          agents: {
-            main: {
-              position: { x: 12, y: 24 },
-              size: { width: 480, height: 360 },
-            },
-          },
-        },
-      },
       focused: {
         "ws://localhost:18789": {
           mode: "focused",
@@ -107,10 +70,6 @@ describe("studio settings normalization", () => {
       },
     });
 
-    expect(merged.layouts["ws://localhost:18789"].agents.main.position).toEqual({
-      x: 12,
-      y: 24,
-    });
     expect(merged.focused["ws://localhost:18789"]).toEqual({
       mode: "focused",
       selectedAgentId: "main",
