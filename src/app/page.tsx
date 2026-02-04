@@ -1721,6 +1721,7 @@ const AgentStudioPage = () => {
   );
 
   const connectionPanelVisible = showConnectionPanel || status !== "connected";
+  const hasAnyAgents = agents.length > 0;
 
   return (
     <div className="relative min-h-screen w-screen overflow-hidden bg-background">
@@ -1767,75 +1768,94 @@ const AgentStudioPage = () => {
           </div>
         ) : null}
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 xl:flex-row">
-          <FleetSidebar
-            agents={filteredAgents}
-            selectedAgentId={focusedAgent?.agentId ?? state.selectedAgentId}
-            filter={focusFilter}
-            onFilterChange={handleFocusFilterChange}
-            onSelectAgent={(agentId) =>
-              dispatch({ type: "selectAgent", agentId })
-            }
-          />
-          <div
-            className="glass-panel min-h-0 flex-1 overflow-hidden p-2 sm:p-3"
-            data-testid="focused-agent-panel"
-          >
-            {focusedAgent ? (
-              <AgentChatPanel
-                agent={focusedAgent}
-                isSelected={false}
-                canSend={status === "connected"}
-                onInspect={() => handleInspectAgent(focusedAgent.agentId)}
-                onNameChange={(name) =>
-                  handleRenameAgent(focusedAgent.agentId, name)
-                }
-                onDraftChange={(value) =>
-                  handleDraftChange(focusedAgent.agentId, value)
-                }
-                onSend={(message) =>
-                  handleSend(
-                    focusedAgent.agentId,
-                    focusedAgent.sessionKey,
-                    message
-                  )
-                }
-                onAvatarShuffle={() => handleAvatarShuffle(focusedAgent.agentId)}
-                onNameShuffle={() => handleNameShuffle(focusedAgent.agentId)}
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center rounded-md border border-border/80 bg-card/70 p-6 text-sm text-muted-foreground">
-                {agents.length > 0
-                  ? "No agents match this filter."
-                  : "No agents available."}
-              </div>
-            )}
-          </div>
-          {inspectAgent ? (
-            <div className="glass-panel min-h-0 w-full shrink-0 overflow-hidden p-0 xl:min-w-[360px] xl:max-w-[430px]">
-              <AgentInspectPanel
-                key={inspectAgent.agentId}
-                agent={inspectAgent}
-                client={client}
-                models={gatewayModels}
-                onClose={() => setInspectAgentId(null)}
-                onDelete={() => handleDeleteAgent(inspectAgent.agentId)}
-                onModelChange={(value) =>
-                  handleModelChange(inspectAgent.agentId, inspectAgent.sessionKey, value)
-                }
-                onThinkingChange={(value) =>
-                  handleThinkingChange(inspectAgent.agentId, inspectAgent.sessionKey, value)
-                }
-                onToolCallingToggle={(enabled) =>
-                  handleToolCallingToggle(inspectAgent.agentId, enabled)
-                }
-                onThinkingTracesToggle={(enabled) =>
-                  handleThinkingTracesToggle(inspectAgent.agentId, enabled)
-                }
-              />
+        {hasAnyAgents ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-4 xl:flex-row">
+            <FleetSidebar
+              agents={filteredAgents}
+              selectedAgentId={focusedAgent?.agentId ?? state.selectedAgentId}
+              filter={focusFilter}
+              onFilterChange={handleFocusFilterChange}
+              onSelectAgent={(agentId) =>
+                dispatch({ type: "selectAgent", agentId })
+              }
+            />
+            <div
+              className="glass-panel min-h-0 flex-1 overflow-hidden p-2 sm:p-3"
+              data-testid="focused-agent-panel"
+            >
+              {focusedAgent ? (
+                <AgentChatPanel
+                  agent={focusedAgent}
+                  isSelected={false}
+                  canSend={status === "connected"}
+                  onInspect={() => handleInspectAgent(focusedAgent.agentId)}
+                  onNameChange={(name) =>
+                    handleRenameAgent(focusedAgent.agentId, name)
+                  }
+                  onDraftChange={(value) =>
+                    handleDraftChange(focusedAgent.agentId, value)
+                  }
+                  onSend={(message) =>
+                    handleSend(
+                      focusedAgent.agentId,
+                      focusedAgent.sessionKey,
+                      message
+                    )
+                  }
+                  onAvatarShuffle={() => handleAvatarShuffle(focusedAgent.agentId)}
+                  onNameShuffle={() => handleNameShuffle(focusedAgent.agentId)}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center rounded-md border border-border/80 bg-card/70 p-6 text-sm text-muted-foreground">
+                  No agents match this filter.
+                </div>
+              )}
             </div>
-          ) : null}
-        </div>
+            {inspectAgent ? (
+              <div className="glass-panel min-h-0 w-full shrink-0 overflow-hidden p-0 xl:min-w-[360px] xl:max-w-[430px]">
+                <AgentInspectPanel
+                  key={inspectAgent.agentId}
+                  agent={inspectAgent}
+                  client={client}
+                  models={gatewayModels}
+                  onClose={() => setInspectAgentId(null)}
+                  onDelete={() => handleDeleteAgent(inspectAgent.agentId)}
+                  onModelChange={(value) =>
+                    handleModelChange(inspectAgent.agentId, inspectAgent.sessionKey, value)
+                  }
+                  onThinkingChange={(value) =>
+                    handleThinkingChange(inspectAgent.agentId, inspectAgent.sessionKey, value)
+                  }
+                  onToolCallingToggle={(enabled) =>
+                    handleToolCallingToggle(inspectAgent.agentId, enabled)
+                  }
+                  onThinkingTracesToggle={(enabled) =>
+                    handleThinkingTracesToggle(inspectAgent.agentId, enabled)
+                  }
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="glass-panel fade-up-delay flex min-h-0 flex-1 flex-col overflow-hidden p-5 sm:p-6">
+            <div className="flex h-full flex-col items-center justify-center rounded-md border border-border/80 bg-card/70 px-6 py-10 text-center">
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Fleet
+              </p>
+              <p className="console-title mt-2 text-2xl leading-none text-foreground sm:text-3xl">
+                No agents available
+              </p>
+              <p className="mt-3 max-w-xl text-sm text-muted-foreground">
+                {status === "connected"
+                  ? "Connected to gateway, but no agents are currently configured."
+                  : "Connect to your gateway to load agents into the studio."}
+              </p>
+              <p className="mt-3 rounded-md border border-border/80 bg-background/75 px-4 py-2 font-mono text-[11px] text-muted-foreground/90">
+                {gatewayUrl || "Gateway URL is empty"}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
