@@ -112,13 +112,22 @@ type SessionsListResult = {
 };
 
 type MobilePane = "fleet" | "chat" | "settings" | "brain";
-type DeleteAgentBlockPhase = "deleting" | "awaiting-restart";
+type DeleteAgentBlockPhase = "queued" | "deleting" | "awaiting-restart";
 type DeleteAgentBlockState = {
   agentId: string;
   agentName: string;
   phase: DeleteAgentBlockPhase;
   startedAt: number;
   sawDisconnect: boolean;
+};
+type ConfigMutationKind = "create-agent" | "rename-agent" | "delete-agent";
+type QueuedConfigMutation = {
+  id: string;
+  kind: ConfigMutationKind;
+  label: string;
+  run: () => Promise<void>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
 };
 
 const RESERVED_MAIN_AGENT_ID = "main";
@@ -293,6 +302,10 @@ const AgentStudioPage = () => {
   const [cronDeleteBusyJobId, setCronDeleteBusyJobId] = useState<string | null>(null);
   const [brainPanelOpen, setBrainPanelOpen] = useState(false);
   const [deleteAgentBlock, setDeleteAgentBlock] = useState<DeleteAgentBlockState | null>(null);
+  const [queuedConfigMutations, setQueuedConfigMutations] = useState<QueuedConfigMutation[]>([]);
+  const [activeConfigMutation, setActiveConfigMutation] = useState<QueuedConfigMutation | null>(
+    null
+  );
   const thinkingDebugRef = useRef<Set<string>>(new Set());
   const chatRunSeenRef = useRef<Set<string>>(new Set());
   const specialUpdateRef = useRef<Map<string, string>>(new Map());
@@ -330,11 +343,37 @@ const AgentStudioPage = () => {
     [faviconSeed]
   );
   const errorMessage = state.error ?? gatewayModelsError;
+  const runningAgentCount = useMemo(
+    () => agents.filter((agent) => agent.status === "running").length,
+    [agents]
+  );
+  const hasRunningAgents = runningAgentCount > 0;
+  const queuedConfigMutationCount = queuedConfigMutations.length;
 
   const handleFocusFilterChange = useCallback((next: FocusFilter) => {
     focusFilterTouchedRef.current = true;
     setFocusFilter(next);
   }, []);
+
+  const enqueueConfigMutation = useCallback(
+    (params: {
+      kind: ConfigMutationKind;
+      label: string;
+      run: () => Promise<void>;
+    }) =>
+      new Promise<void>((resolve, reject) => {
+        const queued: QueuedConfigMutation = {
+          id: crypto.randomUUID(),
+          kind: params.kind,
+          label: params.label,
+          run: params.run,
+          resolve,
+          reject,
+        };
+        setQueuedConfigMutations((current) => [...current, queued]);
+      }),
+    []
+  );
 
   useEffect(() => {
     const selector = 'link[data-agent-favicon="true"]';
@@ -647,6 +686,44 @@ const AgentStudioPage = () => {
   }, [state]);
 
   useEffect(() => {
+    if (status !== "connected") return;
+    if (activeConfigMutation) return;
+    if (deleteAgentBlock) return;
+    if (hasRunningAgents) return;
+    const next = queuedConfigMutations[0];
+    if (!next) return;
+    setQueuedConfigMutations((current) => current.slice(1));
+    setActiveConfigMutation(next);
+  }, [
+    activeConfigMutation,
+    deleteAgentBlock,
+    hasRunningAgents,
+    queuedConfigMutations,
+    status,
+  ]);
+
+  useEffect(() => {
+    if (!activeConfigMutation) return;
+    let mounted = true;
+    const run = async () => {
+      try {
+        await activeConfigMutation.run();
+        activeConfigMutation.resolve();
+      } catch (error) {
+        activeConfigMutation.reject(error);
+      } finally {
+        if (mounted) {
+          setActiveConfigMutation(null);
+        }
+      }
+    };
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, [activeConfigMutation]);
+
+  useEffect(() => {
     let cancelled = false;
     const key = gatewayUrl.trim();
     if (!key) {
@@ -948,24 +1025,37 @@ const AgentStudioPage = () => {
       setDeleteAgentBlock({
         agentId,
         agentName: agent.name,
-        phase: "deleting",
+        phase: "queued",
         startedAt: Date.now(),
-        sawDisconnect: status !== "connected",
+        sawDisconnect: false,
       });
       try {
-        await deleteGatewayAgent({
-          client,
-          agentId,
-          sessionKey: agent.sessionKey,
-        });
-        setSettingsAgentId(null);
-        setDeleteAgentBlock((current) => {
-          if (!current || current.agentId !== agentId) return current;
-          return {
-            ...current,
-            phase: "awaiting-restart",
-            sawDisconnect: current.sawDisconnect || status !== "connected",
-          };
+        await enqueueConfigMutation({
+          kind: "delete-agent",
+          label: `Delete ${agent.name}`,
+          run: async () => {
+            setDeleteAgentBlock((current) => {
+              if (!current || current.agentId !== agentId) return current;
+              return {
+                ...current,
+                phase: "deleting",
+              };
+            });
+            await deleteGatewayAgent({
+              client,
+              agentId,
+              sessionKey: agent.sessionKey,
+            });
+            setSettingsAgentId(null);
+            setDeleteAgentBlock((current) => {
+              if (!current || current.agentId !== agentId) return current;
+              return {
+                ...current,
+                phase: "awaiting-restart",
+                sawDisconnect: false,
+              };
+            });
+          },
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to delete agent.";
@@ -973,7 +1063,7 @@ const AgentStudioPage = () => {
         setError(msg);
       }
     },
-    [agents, client, deleteAgentBlock, setError, status]
+    [agents, client, deleteAgentBlock, enqueueConfigMutation, setError]
   );
 
   useEffect(() => {
@@ -1005,6 +1095,7 @@ const AgentStudioPage = () => {
 
   useEffect(() => {
     if (!deleteAgentBlock) return;
+    if (deleteAgentBlock.phase === "queued") return;
     const maxWaitMs = 90_000;
     const elapsed = Date.now() - deleteAgentBlock.startedAt;
     const remaining = Math.max(0, maxWaitMs - elapsed);
@@ -1073,20 +1164,34 @@ const AgentStudioPage = () => {
     setCreateAgentBusy(true);
     try {
       const name = resolveNextNewAgentName(stateRef.current.agents);
-      const created = await createGatewayAgent({ client, name });
-      await loadAgents();
-      focusFilterTouchedRef.current = true;
-      setFocusFilter("all");
-      dispatch({ type: "selectAgent", agentId: created.id });
-      setSettingsAgentId(null);
-      setMobilePane("chat");
+      await enqueueConfigMutation({
+        kind: "create-agent",
+        label: `Create ${name}`,
+        run: async () => {
+          const created = await createGatewayAgent({ client, name });
+          await loadAgents();
+          focusFilterTouchedRef.current = true;
+          setFocusFilter("all");
+          dispatch({ type: "selectAgent", agentId: created.id });
+          setSettingsAgentId(null);
+          setMobilePane("chat");
+        },
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create agent.";
       setError(message);
     } finally {
       setCreateAgentBusy(false);
     }
-  }, [client, createAgentBusy, dispatch, loadAgents, setError, status]);
+  }, [
+    client,
+    createAgentBusy,
+    dispatch,
+    enqueueConfigMutation,
+    loadAgents,
+    setError,
+    status,
+  ]);
 
   const handleNewSession = useCallback(
     async (agentId: string) => {
@@ -1641,16 +1746,22 @@ const AgentStudioPage = () => {
       const agent = agents.find((entry) => entry.agentId === agentId);
       if (!agent) return false;
       try {
-        await renameGatewayAgent({
-          client,
-          agentId,
-          name,
-          sessionKey: agent.sessionKey,
-        });
-        dispatch({
-          type: "updateAgent",
-          agentId,
-          patch: { name },
+        await enqueueConfigMutation({
+          kind: "rename-agent",
+          label: `Rename ${agent.name}`,
+          run: async () => {
+            await renameGatewayAgent({
+              client,
+              agentId,
+              name,
+              sessionKey: agent.sessionKey,
+            });
+            dispatch({
+              type: "updateAgent",
+              agentId,
+              patch: { name },
+            });
+          },
         });
         return true;
       } catch (err) {
@@ -1659,7 +1770,7 @@ const AgentStudioPage = () => {
         return false;
       }
     },
-    [agents, client, dispatch, setError]
+    [agents, client, dispatch, enqueueConfigMutation, setError]
   );
 
   const handleAvatarShuffle = useCallback(
@@ -1688,8 +1799,19 @@ const AgentStudioPage = () => {
   const connectionPanelVisible = showConnectionPanel;
   const hasAnyAgents = agents.length > 0;
   const showFleetLayout = hasAnyAgents || status === "connected";
+  const configMutationStatusLine = activeConfigMutation
+    ? `Applying config change: ${activeConfigMutation.label}`
+    : queuedConfigMutationCount > 0
+      ? hasRunningAgents
+        ? `Queued ${queuedConfigMutationCount} config change${queuedConfigMutationCount === 1 ? "" : "s"}; waiting for ${runningAgentCount} running agent${runningAgentCount === 1 ? "" : "s"} to finish`
+        : status !== "connected"
+          ? `Queued ${queuedConfigMutationCount} config change${queuedConfigMutationCount === 1 ? "" : "s"}; waiting for gateway connection`
+          : `Queued ${queuedConfigMutationCount} config change${queuedConfigMutationCount === 1 ? "" : "s"}`
+      : null;
   const deleteBlockStatusLine = deleteAgentBlock
-    ? deleteAgentBlock.phase === "deleting"
+    ? deleteAgentBlock.phase === "queued"
+      ? "Waiting for active runs to finish"
+      : deleteAgentBlock.phase === "deleting"
       ? "Submitting config change"
       : !deleteAgentBlock.sawDisconnect
         ? "Waiting for gateway to restart"
@@ -1740,6 +1862,13 @@ const AgentStudioPage = () => {
           <div className="w-full">
             <div className="rounded-md border border-destructive bg-destructive px-4 py-2 text-sm text-destructive-foreground">
               {errorMessage}
+            </div>
+          </div>
+        ) : null}
+        {configMutationStatusLine ? (
+          <div className="w-full">
+            <div className="rounded-md border border-border/80 bg-card/80 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.11em] text-muted-foreground">
+              {configMutationStatusLine}
             </div>
           </div>
         ) : null}
@@ -1920,7 +2049,7 @@ const AgentStudioPage = () => {
           </div>
         )}
       </div>
-      {deleteAgentBlock ? (
+      {deleteAgentBlock && deleteAgentBlock.phase !== "queued" ? (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-background/70 backdrop-blur-sm"
           data-testid="agent-delete-restart-modal"
