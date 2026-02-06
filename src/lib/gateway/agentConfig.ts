@@ -154,11 +154,16 @@ const applyGatewayConfigPatch = async (params: {
   }
 };
 
-type GatewayConfigMutationResult<T> = {
-  shouldPatch: boolean;
-  patch?: Record<string, unknown>;
-  result: T;
-};
+type GatewayConfigMutationResult<T> =
+  | {
+      shouldPatch: true;
+      patch: Record<string, unknown>;
+      result: T;
+    }
+  | {
+      shouldPatch: false;
+      result: T;
+    };
 
 const withGatewayConfigMutation = async <T>(params: {
   client: GatewayClient;
@@ -174,9 +179,6 @@ const withGatewayConfigMutation = async <T>(params: {
   const list = readConfigAgentList(baseConfig);
   const mutation = params.mutate({ snapshot, baseConfig, list });
   if (mutation.shouldPatch) {
-    if (!mutation.patch) {
-      throw new Error("Gateway config mutation requested a patch but did not provide one.");
-    }
     await applyGatewayConfigPatch({
       client: params.client,
       patch: mutation.patch,
@@ -279,12 +281,21 @@ export const deleteGatewayAgent = async (params: {
         patch.bindings = nextBindings;
       }
       const shouldPatch = Object.keys(patch).length > 0;
+      if (!shouldPatch) {
+        return {
+          shouldPatch: false,
+          result: {
+            removed: false,
+            removedBindings: 0,
+          },
+        };
+      }
       return {
-        shouldPatch,
-        patch: shouldPatch ? patch : undefined,
+        shouldPatch: true,
+        patch,
         result: {
-          removed: shouldPatch ? nextList.length !== list.length : false,
-          removedBindings: shouldPatch ? bindings.length - nextBindings.length : 0,
+          removed: nextList.length !== list.length,
+          removedBindings: bindings.length - nextBindings.length,
         },
       };
     },
