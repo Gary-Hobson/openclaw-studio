@@ -162,6 +162,24 @@ export class GatewayClient {
   }
 }
 
+export const isGatewayDisconnectLikeError = (err: unknown): boolean => {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  if (!msg) return false;
+  if (
+    msg.includes("gateway not connected") ||
+    msg.includes("gateway is not connected") ||
+    msg.includes("gateway client stopped")
+  ) {
+    return true;
+  }
+
+  const match = msg.match(/gateway closed \\((\\d+)\\)/);
+  if (!match) return false;
+  const code = Number(match[1]);
+  return Number.isFinite(code) && code === 1012;
+};
+
 type SessionSettingsPatchPayload = {
   key: string;
   model?: string | null;

@@ -86,7 +86,10 @@ import { buildAvatarDataUrl } from "@/lib/avatars/multiavatar";
 import { getStudioSettingsCoordinator } from "@/lib/studio/coordinator";
 import { resolveAgentAvatarSeed, resolveFocusedPreference } from "@/lib/studio/settings";
 import { applySessionSettingMutation } from "@/features/agents/state/sessionSettingsMutations";
-import { syncGatewaySessionSettings } from "@/lib/gateway/GatewayClient";
+import {
+  isGatewayDisconnectLikeError,
+  syncGatewaySessionSettings,
+} from "@/lib/gateway/GatewayClient";
 import { fetchJson } from "@/lib/http";
 
 type ChatHistoryMessage = Record<string, unknown>;
@@ -583,7 +586,9 @@ const AgentStudioPage = () => {
         const message = err instanceof Error ? err.message : "Failed to load cron jobs.";
         setSettingsCronJobs([]);
         setSettingsCronError(message);
-        console.error(message);
+        if (!isGatewayDisconnectLikeError(err)) {
+          console.error(message);
+        }
       } finally {
         setSettingsCronLoading(false);
       }
@@ -608,7 +613,9 @@ const AgentStudioPage = () => {
         const message = err instanceof Error ? err.message : "Failed to load heartbeats.";
         setSettingsHeartbeats([]);
         setSettingsHeartbeatError(message);
-        console.error(message);
+        if (!isGatewayDisconnectLikeError(err)) {
+          console.error(message);
+        }
       } finally {
         setSettingsHeartbeatLoading(false);
       }
@@ -695,9 +702,11 @@ const AgentStudioPage = () => {
           },
         });
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to load latest cron/heartbeat update.";
-        console.error(message);
+        if (!isGatewayDisconnectLikeError(err)) {
+          const message =
+            err instanceof Error ? err.message : "Failed to load latest cron/heartbeat update.";
+          console.error(message);
+        }
       } finally {
         specialUpdateInFlightRef.current.delete(key);
       }
@@ -768,7 +777,9 @@ const AgentStudioPage = () => {
               )
             );
           } catch (err) {
-            console.error("Failed to list sessions while resolving agent session.", err);
+            if (!isGatewayDisconnectLikeError(err)) {
+              console.error("Failed to list sessions while resolving agent session.", err);
+            }
             sessionKeysByAgent.set(agent.id, new Set());
           }
         })
@@ -858,7 +869,9 @@ const AgentStudioPage = () => {
           }
         }
       } catch (err) {
-        console.error("Failed to load initial summary snapshot.", err);
+        if (!isGatewayDisconnectLikeError(err)) {
+          console.error("Failed to load initial summary snapshot.", err);
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load agents.";
@@ -1074,7 +1087,9 @@ const AgentStudioPage = () => {
       try {
         configSnapshot = await client.call<GatewayModelPolicySnapshot>("config.get", {});
       } catch (err) {
-        console.error("Failed to load gateway config.", err);
+        if (!isGatewayDisconnectLikeError(err)) {
+          console.error("Failed to load gateway config.", err);
+        }
       }
       try {
         const result = await client.call<{ models: GatewayModelChoice[] }>(
@@ -1091,7 +1106,9 @@ const AgentStudioPage = () => {
           err instanceof Error ? err.message : "Failed to load models.";
         setGatewayModelsError(message);
         setGatewayModels([]);
-        console.error("Failed to load gateway models.", err);
+        if (!isGatewayDisconnectLikeError(err)) {
+          console.error("Failed to load gateway models.", err);
+        }
       }
     };
     void loadModels();
@@ -1131,7 +1148,9 @@ const AgentStudioPage = () => {
         });
       }
     } catch (err) {
-      console.error("Failed to load summary snapshot.", err);
+      if (!isGatewayDisconnectLikeError(err)) {
+        console.error("Failed to load summary snapshot.", err);
+      }
     }
   }, [client, dispatch]);
 
@@ -1192,8 +1211,10 @@ const AgentStudioPage = () => {
           patch,
         });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to load chat history.";
-        console.error(msg);
+        if (!isGatewayDisconnectLikeError(err)) {
+          const msg = err instanceof Error ? err.message : "Failed to load chat history.";
+          console.error(msg);
+        }
       } finally {
         historyInFlightRef.current.delete(sessionKey);
       }
