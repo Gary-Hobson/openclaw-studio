@@ -4,7 +4,7 @@ import * as childProcess from "node:child_process";
 const SSH_TARGET_ENV = "OPENCLAW_TASK_CONTROL_PLANE_SSH_TARGET";
 const SSH_USER_ENV = "OPENCLAW_TASK_CONTROL_PLANE_SSH_USER";
 
-export const resolveGatewaySshTarget = (env: NodeJS.ProcessEnv = process.env): string => {
+export const resolveConfiguredSshTarget = (env: NodeJS.ProcessEnv = process.env): string | null => {
   const configuredTarget = env[SSH_TARGET_ENV]?.trim() ?? "";
   const configuredUser = env[SSH_USER_ENV]?.trim() ?? "";
 
@@ -14,25 +14,43 @@ export const resolveGatewaySshTarget = (env: NodeJS.ProcessEnv = process.env): s
     return configuredTarget;
   }
 
-  const settings = loadStudioSettings();
-  const gatewayUrl = settings.gateway?.url?.trim() ?? "";
-  if (!gatewayUrl) {
+  return null;
+};
+
+export const resolveGatewaySshTargetFromGatewayUrl = (
+  gatewayUrl: string,
+  env: NodeJS.ProcessEnv = process.env
+): string => {
+  const configured = resolveConfiguredSshTarget(env);
+  if (configured) return configured;
+
+  const trimmed = gatewayUrl.trim();
+  if (!trimmed) {
     throw new Error(
       `Gateway URL is missing. Set it in Studio settings or set ${SSH_TARGET_ENV}.`
     );
   }
   let hostname: string;
   try {
-    hostname = new URL(gatewayUrl).hostname;
+    hostname = new URL(trimmed).hostname;
   } catch {
-    throw new Error(`Invalid gateway URL in studio settings: ${gatewayUrl}`);
+    throw new Error(`Invalid gateway URL: ${trimmed}`);
   }
   if (!hostname) {
-    throw new Error(`Invalid gateway URL in studio settings: ${gatewayUrl}`);
+    throw new Error(`Invalid gateway URL: ${trimmed}`);
   }
 
+  const configuredUser = env[SSH_USER_ENV]?.trim() ?? "";
   const user = configuredUser || "ubuntu";
   return `${user}@${hostname}`;
+};
+
+export const resolveGatewaySshTarget = (env: NodeJS.ProcessEnv = process.env): string => {
+  const configured = resolveConfiguredSshTarget(env);
+  if (configured) return configured;
+
+  const settings = loadStudioSettings();
+  return resolveGatewaySshTargetFromGatewayUrl(settings.gateway?.url?.trim() ?? "", env);
 };
 
 export const extractJsonErrorMessage = (value: string): string | null => {
