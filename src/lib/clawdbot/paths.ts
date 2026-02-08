@@ -7,6 +7,20 @@ const NEW_STATE_DIRNAME = ".openclaw";
 const CONFIG_FILENAME = "openclaw.json";
 const LEGACY_CONFIG_FILENAMES = ["clawdbot.json", "moltbot.json"] as const;
 
+const resolveDefaultHomeDir = (homedir: () => string = os.homedir): string => {
+  const home = homedir();
+  if (home) {
+    try {
+      if (fs.existsSync(home)) {
+        return home;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return os.tmpdir();
+};
+
 export const resolveUserPath = (
   input: string,
   homedir: () => string = os.homedir
@@ -29,8 +43,9 @@ export const resolveStateDir = (
     env.MOLTBOT_STATE_DIR?.trim() ||
     env.CLAWDBOT_STATE_DIR?.trim();
   if (override) return resolveUserPath(override, homedir);
-  const newDir = path.join(homedir(), NEW_STATE_DIRNAME);
-  const legacyDirs = LEGACY_STATE_DIRNAMES.map((dir) => path.join(homedir(), dir));
+  const defaultHome = resolveDefaultHomeDir(homedir);
+  const newDir = path.join(defaultHome, NEW_STATE_DIRNAME);
+  const legacyDirs = LEGACY_STATE_DIRNAMES.map((dir) => path.join(defaultHome, dir));
   const hasNew = fs.existsSync(newDir);
   if (hasNew) return newDir;
   const existingLegacy = legacyDirs.find((dir) => {
@@ -53,6 +68,7 @@ export const resolveConfigPathCandidates = (
     env.CLAWDBOT_CONFIG_PATH?.trim();
   if (explicit) return [resolveUserPath(explicit, homedir)];
 
+  const defaultHome = resolveDefaultHomeDir(homedir);
   const candidates: string[] = [];
   const stateDir =
     env.OPENCLAW_STATE_DIR?.trim() ||
@@ -65,8 +81,8 @@ export const resolveConfigPathCandidates = (
   }
 
   const defaultDirs = [
-    path.join(homedir(), NEW_STATE_DIRNAME),
-    ...LEGACY_STATE_DIRNAMES.map((dir) => path.join(homedir(), dir)),
+    path.join(defaultHome, NEW_STATE_DIRNAME),
+    ...LEGACY_STATE_DIRNAMES.map((dir) => path.join(defaultHome, dir)),
   ];
   for (const dir of defaultDirs) {
     candidates.push(path.join(dir, CONFIG_FILENAME));
