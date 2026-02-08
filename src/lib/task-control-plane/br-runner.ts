@@ -6,6 +6,7 @@ import {
   extractJsonErrorMessage,
   parseJsonOutput,
   resolveGatewaySshTarget,
+  runSshJson,
 } from "@/lib/ssh/gateway-host";
 
 export const BEADS_WORKSPACE_NOT_INITIALIZED_ERROR_MESSAGE =
@@ -58,26 +59,12 @@ const runBrJsonViaSsh = (command: string[], options: { sshTarget: string; cwd: s
     `cd ${quoteShellArg(options.cwd)} && ` +
     `PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\" ` +
     `br ${command.join(" ")} --json`;
-  const result = childProcess.spawnSync(
-    "ssh",
-    ["-o", "BatchMode=yes", options.sshTarget, remote],
-    { encoding: "utf8" }
-  );
-  if (result.error) {
-    throw new Error(`Failed to execute ssh: ${result.error.message}`);
-  }
-  const stdout = result.stdout ?? "";
-  const stderr = result.stderr ?? "";
-  if (result.status !== 0) {
-    const stderrText = stderr.trim();
-    const stdoutText = stdout.trim();
-    const message =
-      extractJsonErrorMessage(stdout) ??
-      extractJsonErrorMessage(stderr) ??
-      (stderrText || stdoutText || `Command failed: ssh ${options.sshTarget} <br>`);
-    throw new Error(message);
-  }
-  return parseJsonOutput(stdout, `br ${command.join(" ")} --json`);
+  return runSshJson({
+    sshTarget: options.sshTarget,
+    argv: [remote],
+    label: `br ${command.join(" ")} --json`,
+    fallbackMessage: `Command failed: ssh ${options.sshTarget} <br>`,
+  });
 };
 
 const parseScopePath = (value: unknown): string | null => {

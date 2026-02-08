@@ -1,5 +1,5 @@
 import { loadStudioSettings } from "@/lib/studio/settings-store";
-import { spawnSync } from "node:child_process";
+import * as childProcess from "node:child_process";
 
 const SSH_TARGET_ENV = "OPENCLAW_TASK_CONTROL_PLANE_SSH_TARGET";
 const SSH_USER_ENV = "OPENCLAW_TASK_CONTROL_PLANE_SSH_USER";
@@ -73,7 +73,7 @@ export const runSshJson = (params: {
   input?: string;
   fallbackMessage?: string;
 }): unknown => {
-  const result = spawnSync(
+  const result = childProcess.spawnSync(
     "ssh",
     ["-o", "BatchMode=yes", params.sshTarget, ...params.argv],
     { encoding: "utf8", input: params.input }
