@@ -116,23 +116,17 @@ type AgentChatPanelProps = {
 };
 
 const ThinkingDetailsRow = memo(function ThinkingDetailsRow({
-  avatarSeed,
-  avatarUrl,
-  name,
   thinkingText,
   durationMs,
   showTyping,
 }: {
-  avatarSeed: string;
-  avatarUrl: string | null;
-  name: string;
   thinkingText: string;
   durationMs?: number;
   showTyping?: boolean;
 }) {
   if (!thinkingText.trim()) return null;
   return (
-    <details className="group rounded-md border border-border/50 bg-muted/20 px-2 py-1.5 text-[11px] text-muted-foreground/90">
+    <details className="group rounded-md bg-muted/20 px-2 py-1.5 text-[11px] text-muted-foreground/90 shadow-sm">
       <summary className="flex cursor-pointer list-none items-center gap-2 opacity-70 [&::-webkit-details-marker]:hidden">
         <ChevronRight className="h-3 w-3 shrink-0 transition group-open:rotate-90" />
         <span className="flex min-w-0 items-center gap-2">
@@ -154,11 +148,8 @@ const ThinkingDetailsRow = memo(function ThinkingDetailsRow({
           ) : null}
         </span>
       </summary>
-      <div className="mt-2 flex items-start gap-2">
-        <AgentAvatar seed={avatarSeed} name={name} avatarUrl={avatarUrl} size={18} />
-        <div className="agent-markdown min-w-0 text-foreground/90">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{thinkingText}</ReactMarkdown>
-        </div>
+      <div className="agent-markdown mt-2 min-w-0 pl-5 text-foreground/90">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{thinkingText}</ReactMarkdown>
       </div>
     </details>
   );
@@ -172,13 +163,13 @@ const UserMessageCard = memo(function UserMessageCard({
   timestampMs?: number;
 }) {
   return (
-    <div className="w-full max-w-[70ch] self-end overflow-hidden rounded-md border border-border/70 bg-primary/10">
+    <div className="w-full max-w-[70ch] self-end overflow-hidden rounded-md bg-primary/10 shadow-sm">
       <div className="flex items-center justify-between gap-3 bg-primary/15 px-3 py-1.5">
         <div className="min-w-0 truncate font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/90">
           You
         </div>
         {typeof timestampMs === "number" ? (
-          <time className="shrink-0 rounded-full border border-border/60 bg-card/60 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/90">
+          <time className="shrink-0 rounded-full bg-card/60 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/90">
             {formatChatTimestamp(timestampMs)}
           </time>
         ) : null}
@@ -227,16 +218,16 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
             {name}
           </div>
           {resolvedTimestamp !== null ? (
-            <time className="shrink-0 rounded-full border border-border/60 bg-card/60 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/90">
+            <time className="shrink-0 rounded-full bg-card/60 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/90">
               {formatChatTimestamp(resolvedTimestamp)}
             </time>
           ) : null}
         </div>
 
-        <div className="mt-2 rounded-md border border-border/60 bg-muted/15 px-3 py-2">
+        <div className="mt-2 rounded-md bg-muted/15 px-3 py-2 shadow-sm">
           {streaming ? (
             <div
-              className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2 py-1.5 text-[11px] text-muted-foreground/90"
+              className="flex items-center gap-2 rounded-md bg-muted/25 px-2 py-1.5 text-[11px] text-muted-foreground/90"
               role="status"
               aria-live="polite"
               data-testid="agent-typing-indicator"
@@ -254,9 +245,6 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
 
           {thinkingText ? (
             <ThinkingDetailsRow
-              avatarSeed={avatarSeed}
-              avatarUrl={avatarUrl}
-              name={name}
               thinkingText={thinkingText}
               durationMs={thinkingDurationMs}
               showTyping={streaming}
@@ -273,14 +261,14 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{intro}</ReactMarkdown>
                   </div>
                 ) : null}
-                <div className="group rounded-md border border-border/55 bg-card/35 px-3 py-2">
+                <div className="group rounded-md bg-card/35 px-3 py-2 shadow-sm">
                   <div className="flex items-center justify-between gap-3 pb-2">
                     <div className="min-w-0 truncate font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/90">
                       Output
                     </div>
                     <button
                       type="button"
-                      className="rounded-md border border-border/60 bg-card/60 p-1.5 text-muted-foreground opacity-0 transition hover:bg-muted/50 group-hover:opacity-100"
+                      className="rounded-md bg-card/60 p-1.5 text-muted-foreground opacity-0 transition hover:bg-muted/50 group-hover:opacity-100"
                       aria-label="Extract output"
                       title="Copy output"
                       onClick={() => {
@@ -393,7 +381,7 @@ const AgentChatFinalItems = memo(function AgentChatFinalItems({
           return (
             <details
               key={`chat-${agentId}-tool-${index}`}
-              className={`w-full ${ASSISTANT_MAX_WIDTH_EXPANDED_CLASS} ${ASSISTANT_GUTTER_CLASS} self-start rounded-md border border-border/60 bg-muted/15 px-2 py-1 text-[11px] text-muted-foreground`}
+              className={`w-full ${ASSISTANT_MAX_WIDTH_EXPANDED_CLASS} ${ASSISTANT_GUTTER_CLASS} self-start rounded-md bg-muted/15 px-2 py-1 text-[11px] text-muted-foreground shadow-sm`}
             >
                 <summary className="cursor-pointer select-none font-mono text-[10px] font-semibold uppercase tracking-[0.11em]">
                   {summaryText}
@@ -556,7 +544,7 @@ const AgentChatTranscript = memo(function AgentChatTranscript({
   }, [runStartedAt, showLiveAssistantCard, status]);
 
   return (
-    <div className="relative flex-1 overflow-hidden rounded-md border border-border/80 bg-card/75">
+    <div className="relative flex-1 overflow-hidden rounded-md bg-card/75 shadow-sm">
       <div
         ref={chatRef}
         data-testid="agent-chat-scroll"
@@ -570,7 +558,7 @@ const AgentChatTranscript = memo(function AgentChatTranscript({
         }}
       >
         <div className="relative flex flex-col gap-3 text-xs text-foreground">
-          <div aria-hidden className={`pointer-events-none absolute ${SPINE_LEFT} top-0 bottom-0 w-px bg-border/40`} />
+          <div aria-hidden className={`pointer-events-none absolute ${SPINE_LEFT} top-0 bottom-0 w-px bg-border/20`} />
           {chatItems.length === 0 ? (
             <EmptyStatePanel title="No messages yet." compact className="p-3 text-xs" />
           ) : (
@@ -610,7 +598,7 @@ const AgentChatTranscript = memo(function AgentChatTranscript({
       {showJumpToLatest ? (
         <button
           type="button"
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md border border-border/80 bg-card/95 px-3 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground shadow-sm transition hover:bg-muted/70"
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md bg-card/95 px-3 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground shadow-sm transition hover:bg-muted/70"
           onClick={() => {
             setPinned(true);
             scrollChatToBottom();
