@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   compileGuidedAgentCreation,
   createDefaultGuidedDraft,
+  resolveGuidedControlsForPreset,
 } from "@/features/agents/creation/compiler";
 import type {
+  AgentControlLevel,
   AgentCreateModalSubmitPayload,
-  AgentCreateMode,
+  AgentStarterKit,
   GuidedAgentCreationDraft,
 } from "@/features/agents/creation/types";
 
@@ -20,12 +22,11 @@ type AgentCreateModalProps = {
   onSubmit: (payload: AgentCreateModalSubmitPayload) => Promise<void> | void;
 };
 
-const parseLineList = (value: string): string[] => {
-  return value
+const parseLineList = (value: string): string[] =>
+  value
     .split(/\n|,/)
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
-};
 
 const formatLineList = (values: string[]): string => values.join("\n");
 
@@ -33,6 +34,60 @@ const fieldClassName =
   "w-full rounded-md border border-border/80 bg-surface-3 px-3 py-2 text-xs text-foreground outline-none";
 const labelClassName =
   "font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
+
+const STARTER_OPTIONS: Array<{
+  id: AgentStarterKit;
+  title: string;
+  description: string;
+}> = [
+  {
+    id: "researcher",
+    title: "Researcher",
+    description: "Evidence-first synthesis and safe recommendations.",
+  },
+  {
+    id: "engineer",
+    title: "Engineer",
+    description: "Code changes with tests and bounded execution.",
+  },
+  {
+    id: "marketer",
+    title: "Marketer",
+    description: "Draft campaigns and growth assets without auto-publishing.",
+  },
+  {
+    id: "chief-of-staff",
+    title: "Chief of Staff",
+    description: "Planning, follow-ups, and operations summaries.",
+  },
+  {
+    id: "blank",
+    title: "Blank",
+    description: "General-purpose baseline with conservative defaults.",
+  },
+];
+
+const CONTROL_LEVEL_OPTIONS: Array<{
+  id: AgentControlLevel;
+  title: string;
+  description: string;
+}> = [
+  {
+    id: "conservative",
+    title: "Conservative",
+    description: "Ask-first behavior with tighter approvals.",
+  },
+  {
+    id: "balanced",
+    title: "Balanced",
+    description: "Practical defaults for most day-to-day work.",
+  },
+  {
+    id: "autopilot",
+    title: "Autopilot",
+    description: "Highest autonomy with broad execution power.",
+  },
+];
 
 export const AgentCreateModal = ({
   open,
@@ -42,44 +97,42 @@ export const AgentCreateModal = ({
   onClose,
   onSubmit,
 }: AgentCreateModalProps) => {
-  const [mode, setMode] = useState<AgentCreateMode | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [name, setName] = useState(() => suggestedName);
   const [guidedDraft, setGuidedDraft] = useState<GuidedAgentCreationDraft>(
     createDefaultGuidedDraft
   );
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const steps = useMemo(() => {
-    if (!mode) return ["mode"] as const;
-    if (mode === "basic") return ["mode", "review"] as const;
-    return ["mode", "outcome", "controls", "identity", "review"] as const;
-  }, [mode]);
-  const stepKey = steps[stepIndex] ?? "mode";
+  useEffect(() => {
+    if (!open) return;
+    setStepIndex(0);
+    setShowAdvanced(false);
+    setName(suggestedName);
+    setGuidedDraft(createDefaultGuidedDraft());
+  }, [open, suggestedName]);
 
-  const compiledGuided = useMemo(() => {
-    if (mode !== "guided") return null;
-    return compileGuidedAgentCreation({ name, draft: guidedDraft });
-  }, [guidedDraft, mode, name]);
+  const compiledGuided = useMemo(
+    () => compileGuidedAgentCreation({ name, draft: guidedDraft }),
+    [guidedDraft, name]
+  );
 
-  const outcomeReady =
-    guidedDraft.primaryOutcome.trim().length > 0 &&
-    parseLineList(formatLineList(guidedDraft.successCriteria)).length >= 3 &&
-    parseLineList(formatLineList(guidedDraft.nonGoals)).length >= 3 &&
-    parseLineList(formatLineList(guidedDraft.exampleTasks)).length >= 2 &&
-    guidedDraft.failureMode.trim().length > 0;
+  const steps = ["starter", "control", "customize", "review"] as const;
+  const stepKey = steps[stepIndex] ?? "starter";
 
   const canGoNext =
-    stepKey === "mode"
-      ? Boolean(mode)
-      : stepKey === "outcome"
-        ? outcomeReady
-        : stepKey !== "review";
+    stepKey === "starter"
+      ? Boolean(guidedDraft.starterKit)
+      : stepKey === "control"
+        ? Boolean(guidedDraft.controlLevel)
+        : stepKey === "customize"
+          ? name.trim().length > 0
+          : false;
 
   const canSubmit =
     stepKey === "review" &&
     name.trim().length > 0 &&
-    (mode === "basic" ||
-      (compiledGuided !== null && compiledGuided.validation.errors.length === 0));
+    compiledGuided.validation.errors.length === 0;
 
   const moveNext = () => {
     if (!canGoNext) return;
@@ -90,14 +143,32 @@ export const AgentCreateModal = ({
     setStepIndex((current) => Math.max(0, current - 1));
   };
 
+  const updateStarterKit = (starterKit: AgentStarterKit) => {
+    setGuidedDraft((current) => ({
+      ...current,
+      starterKit,
+      controls: resolveGuidedControlsForPreset({
+        starterKit,
+        controlLevel: current.controlLevel,
+      }),
+    }));
+  };
+
+  const updateControlLevel = (controlLevel: AgentControlLevel) => {
+    setGuidedDraft((current) => ({
+      ...current,
+      controlLevel,
+      controls: resolveGuidedControlsForPreset({
+        starterKit: current.starterKit,
+        controlLevel,
+      }),
+    }));
+  };
+
   const handleSubmit = () => {
-    if (!canSubmit || !mode) return;
+    if (!canSubmit) return;
     const trimmedName = name.trim();
     if (!trimmedName) return;
-    if (mode === "basic") {
-      void onSubmit({ mode: "basic", name: trimmedName });
-      return;
-    }
     void onSubmit({ mode: "guided", name: trimmedName, draft: guidedDraft });
   };
 
@@ -112,7 +183,7 @@ export const AgentCreateModal = ({
       onClick={busy ? undefined : onClose}
     >
       <div
-        className="w-full max-w-4xl rounded-lg border border-border bg-card"
+        className="w-full max-w-3xl rounded-lg border border-border bg-card"
         onClick={(event) => event.stopPropagation()}
         data-testid="agent-create-modal"
       >
@@ -121,9 +192,7 @@ export const AgentCreateModal = ({
             <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               New Agent
             </div>
-            <div className="mt-1 text-base font-semibold text-foreground">
-              {mode ? `${mode === "basic" ? "Basic" : "Guided"} setup` : "Choose setup mode"}
-            </div>
+            <div className="mt-1 text-base font-semibold text-foreground">Starter setup</div>
           </div>
           <button
             type="button"
@@ -136,8 +205,64 @@ export const AgentCreateModal = ({
         </div>
 
         <div className="max-h-[72vh] overflow-auto px-5 py-4">
-          {stepKey !== "mode" ? (
-            <div className="mb-4">
+          {stepKey === "starter" ? (
+            <div className="grid gap-3" data-testid="agent-create-starter-step">
+              <div className="text-sm text-muted-foreground">
+                Pick a starter kit. You can edit details after creation.
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {STARTER_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-label={`${option.title} starter kit`}
+                    className={`rounded-md border px-4 py-4 text-left transition ${
+                      guidedDraft.starterKit === option.id
+                        ? "border-border bg-surface-2"
+                        : "border-border/80 bg-surface-1 hover:border-border hover:bg-surface-2"
+                    }`}
+                    onClick={() => updateStarterKit(option.id)}
+                  >
+                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      {option.title}
+                    </div>
+                    <div className="mt-2 text-sm text-foreground">{option.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {stepKey === "control" ? (
+            <div className="grid gap-3" data-testid="agent-create-control-step">
+              <div className="text-sm text-muted-foreground">
+                Choose how autonomous this agent should be.
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                {CONTROL_LEVEL_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-label={`${option.title} control level`}
+                    className={`rounded-md border px-4 py-4 text-left transition ${
+                      guidedDraft.controlLevel === option.id
+                        ? "border-border bg-surface-2"
+                        : "border-border/80 bg-surface-1 hover:border-border hover:bg-surface-2"
+                    }`}
+                    onClick={() => updateControlLevel(option.id)}
+                  >
+                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      {option.title}
+                    </div>
+                    <div className="mt-2 text-sm text-foreground">{option.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {stepKey === "customize" ? (
+            <div className="grid gap-4" data-testid="agent-create-customize-step">
               <label className={labelClassName}>
                 Agent name
                 <input
@@ -147,383 +272,29 @@ export const AgentCreateModal = ({
                   placeholder="My agent"
                 />
               </label>
-            </div>
-          ) : null}
-
-          {stepKey === "mode" ? (
-            <div className="grid gap-3 md:grid-cols-2" data-testid="agent-create-mode-step">
-              <button
-                type="button"
-                className={`rounded-md border px-4 py-4 text-left transition ${
-                  mode === "basic"
-                    ? "border-border bg-surface-2"
-                    : "border-border/80 bg-surface-1 hover:border-border hover:bg-surface-2"
-                }`}
-                onClick={() => setMode("basic")}
-              >
-                <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  Basic
-                </div>
-                <div className="mt-2 text-sm text-foreground">
-                  Fast path: create the agent with minimal setup.
-                </div>
-              </button>
-              <button
-                type="button"
-                className={`rounded-md border px-4 py-4 text-left transition ${
-                  mode === "guided"
-                    ? "border-border bg-surface-2"
-                    : "border-border/80 bg-surface-1 hover:border-border hover:bg-surface-2"
-                }`}
-                onClick={() => setMode("guided")}
-              >
-                <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  Guided
-                </div>
-                <div className="mt-2 text-sm text-foreground">
-                  Define outcomes, risk controls, and behavior before creating.
-                </div>
-              </button>
-            </div>
-          ) : null}
-
-          {stepKey === "outcome" ? (
-            <div className="grid gap-4" data-testid="agent-create-outcome-step">
               <label className={labelClassName}>
-                Primary outcome
+                First task
                 <textarea
                   className={`mt-1 min-h-20 ${fieldClassName}`}
-                  value={guidedDraft.primaryOutcome}
+                  value={guidedDraft.firstTask}
                   onChange={(event) =>
                     setGuidedDraft((current) => ({
                       ...current,
-                      primaryOutcome: event.target.value,
+                      firstTask: event.target.value,
                     }))
                   }
-                  placeholder="What should this agent achieve?"
+                  placeholder="What should this agent handle first?"
                 />
               </label>
               <label className={labelClassName}>
-                Success criteria (one per line, at least 3)
-                <textarea
-                  className={`mt-1 min-h-20 ${fieldClassName}`}
-                  value={formatLineList(guidedDraft.successCriteria)}
-                  onChange={(event) =>
-                    setGuidedDraft((current) => ({
-                      ...current,
-                      successCriteria: parseLineList(event.target.value),
-                    }))
-                  }
-                />
-              </label>
-              <label className={labelClassName}>
-                Non-goals (one per line, at least 3)
-                <textarea
-                  className={`mt-1 min-h-20 ${fieldClassName}`}
-                  value={formatLineList(guidedDraft.nonGoals)}
-                  onChange={(event) =>
-                    setGuidedDraft((current) => ({
-                      ...current,
-                      nonGoals: parseLineList(event.target.value),
-                    }))
-                  }
-                />
-              </label>
-              <label className={labelClassName}>
-                Example tasks (one per line, at least 2)
-                <textarea
-                  className={`mt-1 min-h-20 ${fieldClassName}`}
-                  value={formatLineList(guidedDraft.exampleTasks)}
-                  onChange={(event) =>
-                    setGuidedDraft((current) => ({
-                      ...current,
-                      exampleTasks: parseLineList(event.target.value),
-                    }))
-                  }
-                />
-              </label>
-              <label className={labelClassName}>
-                Failure mode you cannot tolerate
-                <input
-                  className={`mt-1 ${fieldClassName}`}
-                  value={guidedDraft.failureMode}
-                  onChange={(event) =>
-                    setGuidedDraft((current) => ({
-                      ...current,
-                      failureMode: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-            </div>
-          ) : null}
-
-          {stepKey === "controls" ? (
-            <div className="grid gap-4" data-testid="agent-create-controls-step">
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border/80 bg-surface-2 px-3 py-2">
-                <span className={labelClassName}>Allow runtime exec tools</span>
-                <input
-                  type="checkbox"
-                  checked={guidedDraft.controls.allowExec}
-                  onChange={(event) =>
-                    setGuidedDraft((current) => ({
-                      ...current,
-                      controls: {
-                        ...current.controls,
-                        allowExec: event.target.checked,
-                      },
-                    }))
-                  }
-                />
-              </label>
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className={labelClassName}>
-                  Exec autonomy
-                  <select
-                    className={`mt-1 ${fieldClassName}`}
-                    value={guidedDraft.controls.execAutonomy}
-                    onChange={(event) =>
-                      setGuidedDraft((current) => ({
-                        ...current,
-                        controls: {
-                          ...current.controls,
-                          execAutonomy: event.target.value as GuidedAgentCreationDraft["controls"]["execAutonomy"],
-                        },
-                      }))
-                    }
-                  >
-                    <option value="ask-first">Ask first</option>
-                    <option value="auto">Auto (bounded)</option>
-                  </select>
-                </label>
-                <label className={labelClassName}>
-                  File edit autonomy
-                  <select
-                    className={`mt-1 ${fieldClassName}`}
-                    value={guidedDraft.controls.fileEditAutonomy}
-                    onChange={(event) =>
-                      setGuidedDraft((current) => ({
-                        ...current,
-                        controls: {
-                          ...current.controls,
-                          fileEditAutonomy:
-                            event.target.value as GuidedAgentCreationDraft["controls"]["fileEditAutonomy"],
-                        },
-                      }))
-                    }
-                  >
-                    <option value="propose-only">Propose only</option>
-                    <option value="auto-edit">Auto edit</option>
-                  </select>
-                </label>
-                <label className={labelClassName}>
-                  Sandbox mode
-                  <select
-                    className={`mt-1 ${fieldClassName}`}
-                    value={guidedDraft.controls.sandboxMode}
-                    onChange={(event) =>
-                      setGuidedDraft((current) => ({
-                        ...current,
-                        controls: {
-                          ...current.controls,
-                          sandboxMode:
-                            event.target.value as GuidedAgentCreationDraft["controls"]["sandboxMode"],
-                        },
-                      }))
-                    }
-                  >
-                    <option value="off">Off</option>
-                    <option value="non-main">Non-main</option>
-                    <option value="all">All sessions</option>
-                  </select>
-                </label>
-                <label className={labelClassName}>
-                  Workspace access
-                  <select
-                    className={`mt-1 ${fieldClassName}`}
-                    value={guidedDraft.controls.workspaceAccess}
-                    onChange={(event) =>
-                      setGuidedDraft((current) => ({
-                        ...current,
-                        controls: {
-                          ...current.controls,
-                          workspaceAccess:
-                            event.target.value as GuidedAgentCreationDraft["controls"]["workspaceAccess"],
-                        },
-                      }))
-                    }
-                  >
-                    <option value="none">None</option>
-                    <option value="ro">Read-only</option>
-                    <option value="rw">Read/write</option>
-                  </select>
-                </label>
-                <label className={labelClassName}>
-                  Tool profile
-                  <select
-                    className={`mt-1 ${fieldClassName}`}
-                    value={guidedDraft.controls.toolsProfile}
-                    onChange={(event) =>
-                      setGuidedDraft((current) => ({
-                        ...current,
-                        controls: {
-                          ...current.controls,
-                          toolsProfile:
-                            event.target.value as GuidedAgentCreationDraft["controls"]["toolsProfile"],
-                        },
-                      }))
-                    }
-                  >
-                    <option value="minimal">Minimal</option>
-                    <option value="coding">Coding</option>
-                    <option value="messaging">Messaging</option>
-                    <option value="full">Full</option>
-                  </select>
-                </label>
-                <label className={labelClassName}>
-                  Approval security
-                  <select
-                    className={`mt-1 ${fieldClassName}`}
-                    value={guidedDraft.controls.approvalSecurity}
-                    onChange={(event) =>
-                      setGuidedDraft((current) => ({
-                        ...current,
-                        controls: {
-                          ...current.controls,
-                          approvalSecurity:
-                            event.target.value as GuidedAgentCreationDraft["controls"]["approvalSecurity"],
-                        },
-                      }))
-                    }
-                  >
-                    <option value="deny">Deny</option>
-                    <option value="allowlist">Allowlist</option>
-                    <option value="full">Full</option>
-                  </select>
-                </label>
-                <label className={labelClassName}>
-                  Approval ask
-                  <select
-                    className={`mt-1 ${fieldClassName}`}
-                    value={guidedDraft.controls.approvalAsk}
-                    onChange={(event) =>
-                      setGuidedDraft((current) => ({
-                        ...current,
-                        controls: {
-                          ...current.controls,
-                          approvalAsk:
-                            event.target.value as GuidedAgentCreationDraft["controls"]["approvalAsk"],
-                        },
-                      }))
-                    }
-                  >
-                    <option value="always">Always</option>
-                    <option value="on-miss">On miss</option>
-                    <option value="off">Off</option>
-                  </select>
-                </label>
-              </div>
-              <label className={labelClassName}>
-                Additional tool allowlist entries (comma or newline separated)
+                Custom instructions (optional)
                 <textarea
                   className={`mt-1 min-h-16 ${fieldClassName}`}
-                  value={formatLineList(guidedDraft.controls.toolsAllow)}
+                  value={guidedDraft.customInstructions}
                   onChange={(event) =>
                     setGuidedDraft((current) => ({
                       ...current,
-                      controls: {
-                        ...current.controls,
-                        toolsAllow: parseLineList(event.target.value),
-                      },
-                    }))
-                  }
-                />
-              </label>
-              <label className={labelClassName}>
-                Additional tool denylist entries (comma or newline separated)
-                <textarea
-                  className={`mt-1 min-h-16 ${fieldClassName}`}
-                  value={formatLineList(guidedDraft.controls.toolsDeny)}
-                  onChange={(event) =>
-                    setGuidedDraft((current) => ({
-                      ...current,
-                      controls: {
-                        ...current.controls,
-                        toolsDeny: parseLineList(event.target.value),
-                      },
-                    }))
-                  }
-                />
-              </label>
-              <label className={labelClassName}>
-                Exec approval allowlist patterns (comma or newline separated)
-                <textarea
-                  className={`mt-1 min-h-16 ${fieldClassName}`}
-                  value={formatLineList(guidedDraft.controls.approvalAllowlist)}
-                  onChange={(event) =>
-                    setGuidedDraft((current) => ({
-                      ...current,
-                      controls: {
-                        ...current.controls,
-                        approvalAllowlist: parseLineList(event.target.value),
-                      },
-                    }))
-                  }
-                />
-              </label>
-            </div>
-          ) : null}
-
-          {stepKey === "identity" ? (
-            <div className="grid gap-4" data-testid="agent-create-identity-step">
-              <label className={labelClassName}>
-                Tone and boundaries
-                <textarea
-                  className={`mt-1 min-h-20 ${fieldClassName}`}
-                  value={guidedDraft.tone}
-                  onChange={(event) =>
-                    setGuidedDraft((current) => ({
-                      ...current,
-                      tone: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label className={labelClassName}>
-                User profile
-                <textarea
-                  className={`mt-1 min-h-20 ${fieldClassName}`}
-                  value={guidedDraft.userProfile}
-                  onChange={(event) =>
-                    setGuidedDraft((current) => ({
-                      ...current,
-                      userProfile: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label className={labelClassName}>
-                Tool usage notes
-                <textarea
-                  className={`mt-1 min-h-16 ${fieldClassName}`}
-                  value={guidedDraft.toolNotes}
-                  onChange={(event) =>
-                    setGuidedDraft((current) => ({
-                      ...current,
-                      toolNotes: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label className={labelClassName}>
-                Memory seeds
-                <textarea
-                  className={`mt-1 min-h-16 ${fieldClassName}`}
-                  value={guidedDraft.memoryNotes}
-                  onChange={(event) =>
-                    setGuidedDraft((current) => ({
-                      ...current,
-                      memoryNotes: event.target.value,
+                      customInstructions: event.target.value,
                     }))
                   }
                 />
@@ -541,73 +312,183 @@ export const AgentCreateModal = ({
                   }
                 />
               </label>
-              {guidedDraft.heartbeatEnabled ? (
-                <label className={labelClassName}>
-                  Heartbeat checklist
-                  <textarea
-                    className={`mt-1 min-h-16 ${fieldClassName}`}
-                    value={formatLineList(guidedDraft.heartbeatChecklist)}
-                    onChange={(event) =>
-                      setGuidedDraft((current) => ({
-                        ...current,
-                        heartbeatChecklist: parseLineList(event.target.value),
-                      }))
-                    }
-                  />
-                </label>
+
+              <button
+                type="button"
+                aria-label={showAdvanced ? "Hide advanced controls" : "Show advanced controls"}
+                className="rounded-md border border-border/80 bg-surface-3 px-3 py-2 text-left font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground transition hover:border-border hover:bg-surface-2"
+                onClick={() => setShowAdvanced((current) => !current)}
+              >
+                {showAdvanced ? "Hide advanced controls" : "Show advanced controls"}
+              </button>
+
+              {showAdvanced ? (
+                <div className="grid gap-3 rounded-md border border-border/80 bg-surface-1 p-3">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className={labelClassName}>
+                      Tool profile
+                      <select
+                        className={`mt-1 ${fieldClassName}`}
+                        value={guidedDraft.controls.toolsProfile}
+                        onChange={(event) =>
+                          setGuidedDraft((current) => ({
+                            ...current,
+                            controls: {
+                              ...current.controls,
+                              toolsProfile:
+                                event.target.value as GuidedAgentCreationDraft["controls"]["toolsProfile"],
+                            },
+                          }))
+                        }
+                      >
+                        <option value="minimal">Minimal</option>
+                        <option value="coding">Coding</option>
+                        <option value="messaging">Messaging</option>
+                        <option value="full">Full</option>
+                      </select>
+                    </label>
+                    <label className={labelClassName}>
+                      Sandbox mode
+                      <select
+                        className={`mt-1 ${fieldClassName}`}
+                        value={guidedDraft.controls.sandboxMode}
+                        onChange={(event) =>
+                          setGuidedDraft((current) => ({
+                            ...current,
+                            controls: {
+                              ...current.controls,
+                              sandboxMode:
+                                event.target.value as GuidedAgentCreationDraft["controls"]["sandboxMode"],
+                            },
+                          }))
+                        }
+                      >
+                        <option value="off">Off</option>
+                        <option value="non-main">Non-main</option>
+                        <option value="all">All sessions</option>
+                      </select>
+                    </label>
+                    <label className={labelClassName}>
+                      Workspace access
+                      <select
+                        className={`mt-1 ${fieldClassName}`}
+                        value={guidedDraft.controls.workspaceAccess}
+                        onChange={(event) =>
+                          setGuidedDraft((current) => ({
+                            ...current,
+                            controls: {
+                              ...current.controls,
+                              workspaceAccess:
+                                event.target.value as GuidedAgentCreationDraft["controls"]["workspaceAccess"],
+                            },
+                          }))
+                        }
+                      >
+                        <option value="none">None</option>
+                        <option value="ro">Read-only</option>
+                        <option value="rw">Read/write</option>
+                      </select>
+                    </label>
+                    <label className={labelClassName}>
+                      Approval mode
+                      <select
+                        className={`mt-1 ${fieldClassName}`}
+                        value={guidedDraft.controls.approvalAsk}
+                        onChange={(event) =>
+                          setGuidedDraft((current) => ({
+                            ...current,
+                            controls: {
+                              ...current.controls,
+                              approvalAsk:
+                                event.target.value as GuidedAgentCreationDraft["controls"]["approvalAsk"],
+                            },
+                          }))
+                        }
+                      >
+                        <option value="always">Always</option>
+                        <option value="on-miss">On miss</option>
+                        <option value="off">Off</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label className="flex items-center justify-between gap-3 rounded-md border border-border/80 bg-surface-2 px-3 py-2">
+                    <span className={labelClassName}>Allow runtime exec tools</span>
+                    <input
+                      type="checkbox"
+                      checked={guidedDraft.controls.allowExec}
+                      onChange={(event) =>
+                        setGuidedDraft((current) => ({
+                          ...current,
+                          controls: {
+                            ...current.controls,
+                            allowExec: event.target.checked,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className={labelClassName}>
+                    Additional tool allowlist entries (comma or newline separated)
+                    <textarea
+                      className={`mt-1 min-h-16 ${fieldClassName}`}
+                      value={formatLineList(guidedDraft.controls.toolsAllow)}
+                      onChange={(event) =>
+                        setGuidedDraft((current) => ({
+                          ...current,
+                          controls: {
+                            ...current.controls,
+                            toolsAllow: parseLineList(event.target.value),
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className={labelClassName}>
+                    Additional tool denylist entries (comma or newline separated)
+                    <textarea
+                      className={`mt-1 min-h-16 ${fieldClassName}`}
+                      value={formatLineList(guidedDraft.controls.toolsDeny)}
+                      onChange={(event) =>
+                        setGuidedDraft((current) => ({
+                          ...current,
+                          controls: {
+                            ...current.controls,
+                            toolsDeny: parseLineList(event.target.value),
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
               ) : null}
             </div>
           ) : null}
 
           {stepKey === "review" ? (
             <div className="grid gap-4" data-testid="agent-create-review-step">
-              {mode === "basic" ? (
-                <div className="rounded-md border border-border/80 bg-surface-2 px-4 py-3 text-sm text-foreground">
-                  This will create <span className="font-semibold">{name.trim() || "New Agent"}</span>{" "}
-                  with default runtime behavior and no additional overrides.
+              <div className="rounded-md border border-border/80 bg-surface-2 px-4 py-3">
+                <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Config preview
                 </div>
-              ) : compiledGuided ? (
-                <>
-                  <div className="rounded-md border border-border/80 bg-surface-2 px-4 py-3">
-                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                      Config preview
-                    </div>
-                    <ul className="mt-2 list-disc pl-5 text-sm text-foreground">
-                      {compiledGuided.summary.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  {compiledGuided.validation.errors.length > 0 ? (
-                    <div className="rounded-md border border-destructive/50 bg-destructive/12 px-4 py-3 text-sm text-destructive">
-                      {compiledGuided.validation.errors.map((error) => (
-                        <div key={error}>{error}</div>
-                      ))}
-                    </div>
-                  ) : null}
-                  {compiledGuided.validation.warnings.length > 0 ? (
-                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
-                      {compiledGuided.validation.warnings.map((warning) => (
-                        <div key={warning}>{warning}</div>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="grid gap-2">
-                    {Object.entries(compiledGuided.files).map(([fileName, content]) => (
-                      <details
-                        key={fileName}
-                        className="rounded-md border border-border/80 bg-surface-2 px-3 py-2"
-                      >
-                        <summary className="cursor-pointer font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                          {fileName}
-                        </summary>
-                        <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap rounded-md border border-border/70 bg-surface-3 p-2 text-[11px] text-foreground">
-                          {content}
-                        </pre>
-                      </details>
-                    ))}
-                  </div>
-                </>
+                <ul className="mt-2 list-disc pl-5 text-sm text-foreground">
+                  {compiledGuided.summary.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+              {compiledGuided.validation.errors.length > 0 ? (
+                <div className="rounded-md border border-destructive/50 bg-destructive/12 px-4 py-3 text-sm text-destructive">
+                  {compiledGuided.validation.errors.map((error) => (
+                    <div key={error}>{error}</div>
+                  ))}
+                </div>
+              ) : null}
+              {compiledGuided.validation.warnings.length > 0 ? (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
+                  {compiledGuided.validation.warnings.map((warning) => (
+                    <div key={warning}>{warning}</div>
+                  ))}
+                </div>
               ) : null}
             </div>
           ) : null}
