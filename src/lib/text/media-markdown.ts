@@ -64,7 +64,7 @@ export const rewriteMediaLinesToMarkdown = (text: string): string => {
       continue;
     }
 
-    out.push(`[Download media](${url})`);
+    out.push(line);
   }
 
   return out.join("\n");
