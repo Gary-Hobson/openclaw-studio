@@ -125,6 +125,16 @@ describe("shouldAwaitDisconnectRestartForRemoteMutation", () => {
     expect((client.call as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
   });
 
+  it("treats missing cached reload mode as hybrid", async () => {
+    const client = { call: vi.fn() } as unknown as GatewayClient;
+    const shouldAwait = await shouldAwaitDisconnectRestartForRemoteMutation({
+      client,
+      cachedConfigSnapshot: { config: {} },
+    });
+    expect(shouldAwait).toBe(false);
+    expect((client.call as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
   it("returns true when reload mode is unknown", async () => {
     const client = { call: vi.fn() } as unknown as GatewayClient;
     const shouldAwait = await shouldAwaitDisconnectRestartForRemoteMutation({
@@ -142,6 +152,23 @@ describe("shouldAwaitDisconnectRestartForRemoteMutation", () => {
           throw new Error(`unexpected method: ${method}`);
         }
         return { config: { gateway: { reload: { mode: "hot" } } } };
+      }),
+    } as unknown as GatewayClient;
+    const shouldAwait = await shouldAwaitDisconnectRestartForRemoteMutation({
+      client,
+      cachedConfigSnapshot: null,
+    });
+    expect(shouldAwait).toBe(false);
+    expect((client.call as ReturnType<typeof vi.fn>).mock.calls).toEqual([["config.get", {}]]);
+  });
+
+  it("loads config when cache is missing and treats missing reload mode as hybrid", async () => {
+    const client = {
+      call: vi.fn(async (method: string) => {
+        if (method !== "config.get") {
+          throw new Error(`unexpected method: ${method}`);
+        }
+        return { config: {} };
       }),
     } as unknown as GatewayClient;
     const shouldAwait = await shouldAwaitDisconnectRestartForRemoteMutation({

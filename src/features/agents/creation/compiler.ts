@@ -4,7 +4,6 @@ import type {
   AgentPresetBundle,
   GuidedPresetBundleDefinition,
   GuidedPresetCapabilitySummary,
-  GuidedPresetRiskLevel,
   AgentStarterKit,
   GuidedAgentCreationCompileResult,
   GuidedAgentCreationDraft,
@@ -88,7 +87,7 @@ const STARTER_TEMPLATES: Record<AgentStarterKit, StarterTemplate> = {
     ],
     toolsProfile: "coding",
     allowExecByDefault: true,
-    baseAlsoAllow: [],
+    baseAlsoAllow: ["group:web"],
     baseDeny: [],
   },
   marketer: {
@@ -128,7 +127,7 @@ const STARTER_TEMPLATES: Record<AgentStarterKit, StarterTemplate> = {
     ],
     toolsProfile: "minimal",
     allowExecByDefault: false,
-    baseAlsoAllow: [],
+    baseAlsoAllow: ["group:web"],
     baseDeny: ["group:runtime"],
   },
   blank: {
@@ -148,7 +147,7 @@ const STARTER_TEMPLATES: Record<AgentStarterKit, StarterTemplate> = {
     ],
     toolsProfile: "minimal",
     allowExecByDefault: false,
-    baseAlsoAllow: [],
+    baseAlsoAllow: ["group:web"],
     baseDeny: ["group:runtime"],
   },
 };
@@ -194,19 +193,17 @@ export const GUIDED_PRESET_BUNDLES: GuidedPresetBundleDefinition[] = [
     id: "research-analyst",
     group: "knowledge",
     title: "Research Analyst",
-    description: "Evidence-first synthesis with conservative controls.",
+    description: "Evidence-first synthesis with broad access defaults.",
     starterKit: "researcher",
-    controlLevel: "conservative",
-    heartbeatEnabled: false,
+    controlLevel: "autopilot",
   },
   {
     id: "pr-engineer",
     group: "builder",
     title: "PR Engineer",
-    description: "Safe code changes with bounded runtime execution.",
+    description: "Safe code changes with broad execution defaults.",
     starterKit: "engineer",
-    controlLevel: "balanced",
-    heartbeatEnabled: false,
+    controlLevel: "autopilot",
   },
   {
     id: "autonomous-engineer",
@@ -215,34 +212,30 @@ export const GUIDED_PRESET_BUNDLES: GuidedPresetBundleDefinition[] = [
     description: "High-autonomy coding with broad execution permissions.",
     starterKit: "engineer",
     controlLevel: "autopilot",
-    heartbeatEnabled: false,
   },
   {
     id: "growth-operator",
     group: "operations",
     title: "Growth Operator",
-    description: "Campaign drafting defaults with recurring review cadence.",
+    description: "Campaign drafting defaults with broad access.",
     starterKit: "marketer",
-    controlLevel: "balanced",
-    heartbeatEnabled: true,
+    controlLevel: "autopilot",
   },
   {
     id: "coordinator",
     group: "operations",
     title: "Coordinator",
-    description: "Follow-up and planning support with low-risk defaults.",
+    description: "Follow-up and planning support with broad defaults.",
     starterKit: "chief-of-staff",
-    controlLevel: "balanced",
-    heartbeatEnabled: true,
+    controlLevel: "autopilot",
   },
   {
     id: "blank",
     group: "baseline",
     title: "Blank",
-    description: "General-purpose baseline with conservative controls.",
+    description: "General-purpose baseline with broad defaults.",
     starterKit: "blank",
-    controlLevel: "conservative",
-    heartbeatEnabled: false,
+    controlLevel: "autopilot",
   },
 ];
 
@@ -269,6 +262,11 @@ export const resolveGuidedControlsForPreset = (params: {
   const starter = resolveStarterTemplate(params.starterKit);
   const control = CONTROL_DEFAULTS[params.controlLevel];
   const allowExec = params.controlLevel === "autopilot" ? true : starter.allowExecByDefault;
+  const toolsAllow = new Set(starter.baseAlsoAllow);
+  if (params.controlLevel === "autopilot") {
+    toolsAllow.add("group:web");
+    toolsAllow.add("group:fs");
+  }
   return {
     allowExec,
     execAutonomy: control.execAutonomy,
@@ -276,7 +274,7 @@ export const resolveGuidedControlsForPreset = (params: {
     sandboxMode: control.sandboxMode,
     workspaceAccess: control.workspaceAccess,
     toolsProfile: starter.toolsProfile,
-    toolsAllow: [...starter.baseAlsoAllow],
+    toolsAllow: Array.from(toolsAllow),
     toolsDeny: [...starter.baseDeny],
     approvalSecurity: control.approvalSecurity,
     approvalAsk: control.approvalAsk,
@@ -293,7 +291,7 @@ export const resolveGuidedDraftFromPresetBundle = (params: {
     ...params.seed,
     starterKit: bundle.starterKit,
     controlLevel: bundle.controlLevel,
-    heartbeatEnabled: bundle.heartbeatEnabled,
+    heartbeatEnabled: false,
     controls: resolveGuidedControlsForPreset({
       starterKit: bundle.starterKit,
       controlLevel: bundle.controlLevel,
@@ -308,7 +306,7 @@ const TOOL_PROFILE_BASE_ENTRIES: Record<GuidedCreationControls["toolsProfile"], 
   full: ["*"],
 };
 
-const hasGroupCapability = (params: {
+export const hasGuidedGroupCapability = (params: {
   controls: GuidedCreationControls;
   group: string;
 }): boolean => {
@@ -322,66 +320,29 @@ const hasGroupCapability = (params: {
   return allow.has("*") || allow.has(params.group);
 };
 
-const derivePresetRiskLevel = (controls: GuidedCreationControls): GuidedPresetRiskLevel => {
-  if (
-    controls.execAutonomy === "auto" ||
-    controls.fileEditAutonomy === "auto-edit" ||
-    controls.sandboxMode === "all" ||
-    controls.workspaceAccess === "rw" ||
-    controls.approvalSecurity === "full" ||
-    controls.approvalAsk === "off"
-  ) {
-    return "high";
-  }
-  if (controls.allowExec || controls.approvalAsk === "on-miss") {
-    return "moderate";
-  }
-  return "low";
-};
-
 export const deriveGuidedPresetCapabilitySummary = (params: {
   controls: GuidedCreationControls;
-  heartbeatEnabled: boolean;
 }): GuidedPresetCapabilitySummary => {
   const { controls } = params;
-  const internetEnabled = hasGroupCapability({ controls, group: "group:web" });
-  const fileSystemEnabled = hasGroupCapability({ controls, group: "group:fs" });
+  const webEnabled = hasGuidedGroupCapability({ controls, group: "group:web" });
+  const fileSystemEnabled = hasGuidedGroupCapability({ controls, group: "group:fs" });
   const execEnabled = controls.allowExec;
-  const heartbeatEnabled = params.heartbeatEnabled;
-  const caveats: string[] = [];
-  if (controls.sandboxMode === "non-main") {
-    caveats.push("Sandbox mode non-main does not sandbox the agent main session.");
-  }
   return {
     chips: [
-      { id: "exec", label: "Exec", value: execEnabled ? "On" : "Off", enabled: execEnabled },
+      { id: "command", label: "Command", value: execEnabled ? "On" : "Off", enabled: execEnabled },
       {
-        id: "internet",
-        label: "Internet",
-        value: internetEnabled ? "On" : "Off",
-        enabled: internetEnabled,
+        id: "web",
+        label: "Web access",
+        value: webEnabled ? "On" : "Off",
+        enabled: webEnabled,
       },
       {
-        id: "filesystem",
+        id: "files",
         label: "File tools",
         value: fileSystemEnabled ? "On" : "Off",
         enabled: fileSystemEnabled,
       },
-      {
-        id: "sandbox",
-        label: "Sandbox",
-        value: controls.sandboxMode,
-        enabled: controls.sandboxMode !== "off",
-      },
-      {
-        id: "heartbeat",
-        label: "Heartbeat",
-        value: heartbeatEnabled ? "On" : "Off",
-        enabled: heartbeatEnabled,
-      },
     ],
-    risk: derivePresetRiskLevel(controls),
-    caveats,
   };
 };
 
@@ -461,10 +422,6 @@ export const compileGuidedAgentCreation = (params: {
   if (!userProfile) {
     warnings.push("User profile is empty; USER.md will use a minimal default.");
   }
-  if (params.draft.controls.allowExec && params.draft.controls.approvalSecurity === "allowlist" && approvalAllowlist.length === 0) {
-    warnings.push("Approval security is allowlist with no patterns yet.");
-  }
-
   const uncertaintyRule =
     params.draft.controls.execAutonomy === "auto"
       ? "When uncertain, take the best bounded action and explain your assumptions."
@@ -530,15 +487,37 @@ export const compileGuidedAgentCreation = (params: {
     ].join("\n"),
   };
 
+  const webAccessEnabled = hasGuidedGroupCapability({
+    controls: params.draft.controls,
+    group: "group:web",
+  });
+  const fileToolsEnabled = hasGuidedGroupCapability({
+    controls: params.draft.controls,
+    group: "group:fs",
+  });
+  const sandboxSummary =
+    params.draft.controls.sandboxMode === "all"
+      ? "All sessions run in an isolated sandbox."
+      : params.draft.controls.sandboxMode === "non-main"
+        ? "Group sessions run in an isolated sandbox; your main chat runs normally."
+        : "Sessions run without sandbox isolation.";
+  const fileSummary = !fileToolsEnabled
+    ? "File tools are disabled."
+    : params.draft.controls.fileEditAutonomy === "auto-edit"
+      ? "Can apply file edits directly within configured workspace bounds."
+      : "Can propose file edits and wait for confirmation before applying.";
+  const commandSummary = !params.draft.controls.allowExec
+    ? "Command execution is disabled."
+    : params.draft.controls.execAutonomy === "auto"
+      ? "Can run commands automatically without approval prompts."
+      : "Can run commands with approval prompts.";
+
   const summary = [
     `Starter: ${starter.label}`,
-    `Control level: ${params.draft.controlLevel}`,
-    `Sandbox: ${params.draft.controls.sandboxMode}`,
-    `Workspace access: ${params.draft.controls.workspaceAccess}`,
-    `Tools profile: ${params.draft.controls.toolsProfile}`,
-    params.draft.controls.allowExec
-      ? `Exec approvals: ${params.draft.controls.approvalSecurity} / ${params.draft.controls.approvalAsk}`
-      : "Exec tools: disabled (group:runtime denied)",
+    webAccessEnabled ? "Web access is enabled for search and fetch tools." : "Web access is disabled.",
+    fileSummary,
+    commandSummary,
+    sandboxSummary,
   ];
 
   return {

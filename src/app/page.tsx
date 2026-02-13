@@ -156,13 +156,12 @@ type DeleteAgentBlockState = {
   startedAt: number;
   sawDisconnect: boolean;
 };
-type CreateAgentBlockPhase = "queued" | "creating" | "awaiting-restart" | "applying-setup";
+type CreateAgentBlockPhase = "queued" | "creating" | "applying-setup";
 type CreateAgentBlockState = {
   agentId: string | null;
   agentName: string;
   phase: CreateAgentBlockPhase;
   startedAt: number;
-  sawDisconnect: boolean;
 };
 type RenameAgentBlockPhase = "queued" | "renaming" | "awaiting-restart";
 type RenameAgentBlockState = {
@@ -707,7 +706,7 @@ const AgentStudioPage = () => {
   ]);
 
   const applyPendingCreateSetupForAgentId = useCallback(
-    async (params: { agentId: string; source: "auto" | "manual" | "restart" }) => {
+    async (params: { agentId: string; source: "auto" | "manual" }) => {
       const resolvedAgentId = params.agentId.trim();
       if (!resolvedAgentId) return false;
       if (
@@ -1527,6 +1526,26 @@ const AgentStudioPage = () => {
     setCreateAgentModalOpen(true);
   }, [createAgentBlock, createAgentBusy, deleteAgentBlock, renameAgentBlock]);
 
+  const persistAvatarSeed = useCallback(
+    (agentId: string, avatarSeed: string) => {
+      const resolvedAgentId = agentId.trim();
+      const resolvedAvatarSeed = avatarSeed.trim();
+      const key = gatewayUrl.trim();
+      if (!resolvedAgentId || !resolvedAvatarSeed || !key) return;
+      settingsCoordinator.schedulePatch(
+        {
+          avatars: {
+            [key]: {
+              [resolvedAgentId]: resolvedAvatarSeed,
+            },
+          },
+        },
+        0
+      );
+    },
+    [gatewayUrl, settingsCoordinator]
+  );
+
   const handleCreateAgentSubmit = useCallback(
     async (payload: AgentCreateModalSubmitPayload) => {
       if (createAgentBusy) return;
@@ -1539,6 +1558,7 @@ const AgentStudioPage = () => {
       }
 
       const name = payload.name.trim();
+      const selectedAvatarSeed = payload.avatarSeed?.trim() ?? "";
       if (!name) {
         setCreateAgentModalError("Agent name is required.");
         return;
@@ -1562,7 +1582,6 @@ const AgentStudioPage = () => {
         agentName: name,
         phase: "queued",
         startedAt: Date.now(),
-        sawDisconnect: false,
       });
       try {
         await enqueueConfigMutation({
@@ -1574,6 +1593,9 @@ const AgentStudioPage = () => {
               return { ...current, phase: "creating" };
             });
             const created = await createGatewayAgent({ client, name });
+            if (selectedAvatarSeed) {
+              persistAvatarSeed(created.id, selectedAvatarSeed);
+            }
             flushPendingDraft(focusedAgent?.agentId ?? null);
             focusFilterTouchedRef.current = true;
             setFocusFilter("all");
@@ -1615,24 +1637,6 @@ const AgentStudioPage = () => {
             setPendingCreateSetupsByAgentId((current) =>
               upsertPendingGuidedSetup(current, created.id, setup)
             );
-            const shouldAwaitRestart = await shouldAwaitDisconnectRestartForRemoteMutation({
-              client,
-              cachedConfigSnapshot: gatewayConfigSnapshot,
-              logError: (message, error) => console.error(message, error),
-            });
-            if (shouldAwaitRestart) {
-              setCreateAgentBlock((current) => {
-                if (!current || current.agentName !== name) return current;
-                return {
-                  ...current,
-                  agentId: created.id,
-                  phase: "awaiting-restart",
-                  sawDisconnect: false,
-                };
-              });
-              setCreateAgentModalOpen(false);
-              return;
-            }
             let remoteSetupError: string | null = null;
             setCreateAgentBlock((current) => {
               if (!current || current.agentName !== name) return current;
@@ -1687,52 +1691,29 @@ const AgentStudioPage = () => {
       enqueueConfigMutation,
       flushPendingDraft,
       focusedAgent,
-      gatewayConfigSnapshot,
       isLocalGateway,
       loadAgents,
+      persistAvatarSeed,
       renameAgentBlock,
       setError,
       status,
     ]
   );
 
-  useGatewayRestartBlock({
-    status,
-    block: createAgentBlock,
-    setBlock: setCreateAgentBlock,
-    maxWaitMs: 90_000,
-    onTimeout: () => {
+  useEffect(() => {
+    if (!createAgentBlock || createAgentBlock.phase === "queued") return;
+    const elapsed = Date.now() - createAgentBlock.startedAt;
+    const remaining = Math.max(0, 90_000 - elapsed);
+    const timeoutId = window.setTimeout(() => {
       setCreateAgentBlock(null);
       setCreateAgentModalOpen(false);
       void loadAgents();
-      setError("Gateway restart timed out after creating the agent.");
-    },
-    onRestartComplete: async (block, ctx) => {
-      await loadAgents();
-      if (ctx.isCancelled()) return;
-      const newAgentId = block.agentId?.trim() ?? "";
-      if (newAgentId) {
-        dispatch({ type: "selectAgent", agentId: newAgentId });
-      }
-      const pendingSetup = newAgentId
-        ? pendingCreateSetupsByAgentIdRef.current[newAgentId] ?? null
-        : null;
-      if (newAgentId && pendingSetup) {
-        pendingSetupAutoRetryAttemptedRef.current.add(newAgentId);
-        setCreateAgentBlock((current) => {
-          if (!current || current.agentId !== newAgentId) return current;
-          return { ...current, phase: "applying-setup" };
-        });
-        await applyPendingCreateSetupForAgentId({
-          agentId: newAgentId,
-          source: "restart",
-        });
-      }
-      setCreateAgentBlock(null);
-      setCreateAgentModalOpen(false);
-      setMobilePane("chat");
-    },
-  });
+      setError("Agent creation timed out.");
+    }, remaining);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [createAgentBlock, loadAgents, setError]);
 
   useGatewayRestartBlock({
     status,
@@ -2206,20 +2187,9 @@ const AgentStudioPage = () => {
         agentId,
         patch: { avatarSeed },
       });
-      const key = gatewayUrl.trim();
-      if (!key) return;
-      settingsCoordinator.schedulePatch(
-        {
-          avatars: {
-            [key]: {
-              [agentId]: avatarSeed,
-            },
-          },
-        },
-        0
-      );
+      persistAvatarSeed(agentId, avatarSeed);
     },
-    [dispatch, gatewayUrl, settingsCoordinator]
+    [dispatch, persistAvatarSeed]
   );
 
   const handleDraftChange = useCallback(
@@ -2263,11 +2233,7 @@ const AgentStudioPage = () => {
       ? "Submitting config change"
       : createAgentBlock.phase === "applying-setup"
         ? "Applying guided setup"
-      : !createAgentBlock.sawDisconnect
-        ? "Waiting for gateway to restart"
-        : status === "connected"
-          ? "Gateway is back online, syncing agents"
-          : "Gateway restart in progress"
+        : null
     : null;
   const renameBlockStatusLine = renameAgentBlock
     ? renameAgentBlock.phase === "queued"
@@ -2661,7 +2627,7 @@ const AgentStudioPage = () => {
           data-testid="agent-create-restart-modal"
           role="dialog"
           aria-modal="true"
-          aria-label="Creating agent and restarting gateway"
+          aria-label="Creating agent"
         >
           <div className="w-full max-w-md rounded-lg border border-border bg-card p-6">
             <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -2671,7 +2637,7 @@ const AgentStudioPage = () => {
               {createAgentBlock.agentName}
             </div>
             <div className="mt-3 text-sm text-muted-foreground">
-              Studio is temporarily locked until the gateway restarts.
+              Studio is temporarily locked until creation finishes.
             </div>
             {createBlockStatusLine ? (
               <div className="mt-4 rounded-md border border-border/70 bg-muted/40 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.12em] text-foreground">

@@ -19,7 +19,7 @@ const createDraft = (): GuidedAgentCreationDraft => {
     userProfile: "Product engineer who prefers concise summaries.",
     toolNotes: "Use git history and markdown formatting conventions.",
     memoryNotes: "Remember recurring formatting preferences.",
-    heartbeatEnabled: true,
+    heartbeatEnabled: false,
     heartbeatChecklist: ["Check stale release notes.", "Confirm source links.", "Report only blockers."],
   };
 };
@@ -121,18 +121,20 @@ describe("compileGuidedAgentCreation", () => {
     expect(result.validation.errors).toContain("Auto exec requires runtime tools to be enabled.");
   });
 
-  it("maps PR Engineer bundle to engineer + balanced defaults", () => {
+  it("maps PR Engineer bundle to engineer + autopilot defaults", () => {
     const draft = resolveGuidedDraftFromPresetBundle({
       bundle: "pr-engineer",
       seed: createDefaultGuidedDraft(),
     });
 
     expect(draft.starterKit).toBe("engineer");
-    expect(draft.controlLevel).toBe("balanced");
+    expect(draft.controlLevel).toBe("autopilot");
     expect(draft.controls.toolsProfile).toBe("coding");
     expect(draft.controls.allowExec).toBe(true);
-    expect(draft.controls.sandboxMode).toBe("non-main");
-    expect(draft.controls.workspaceAccess).toBe("ro");
+    expect(draft.controls.sandboxMode).toBe("all");
+    expect(draft.controls.workspaceAccess).toBe("rw");
+    expect(draft.controls.toolsAllow).toContain("group:web");
+    expect(draft.controls.toolsAllow).toContain("group:fs");
     expect(draft.heartbeatEnabled).toBe(false);
   });
 
@@ -158,48 +160,32 @@ describe("compileGuidedAgentCreation", () => {
     });
     const capability = deriveGuidedPresetCapabilitySummary({
       controls: draft.controls,
-      heartbeatEnabled: draft.heartbeatEnabled,
     });
 
-    expect(capability.risk).toBe("moderate");
     expect(capability.chips).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "exec", label: "Exec", enabled: true, value: "On" }),
-        expect.objectContaining({ id: "internet", label: "Internet", enabled: false, value: "Off" }),
+        expect.objectContaining({ id: "command", label: "Command", enabled: true, value: "On" }),
+        expect.objectContaining({ id: "web", label: "Web access", enabled: true, value: "On" }),
         expect.objectContaining({
-          id: "filesystem",
+          id: "files",
           label: "File tools",
           enabled: true,
           value: "On",
-        }),
-        expect.objectContaining({
-          id: "sandbox",
-          label: "Sandbox",
-          enabled: true,
-          value: "non-main",
-        }),
-        expect.objectContaining({
-          id: "heartbeat",
-          label: "Heartbeat",
-          enabled: false,
-          value: "Off",
         }),
       ])
     );
   });
 
-  it("flags main-session caveat when sandbox mode is non-main", () => {
+  it("does not include risk or caveat metadata in capability chips", () => {
     const draft = resolveGuidedDraftFromPresetBundle({
       bundle: "research-analyst",
       seed: createDefaultGuidedDraft(),
     });
     const capability = deriveGuidedPresetCapabilitySummary({
       controls: draft.controls,
-      heartbeatEnabled: draft.heartbeatEnabled,
     });
 
-    expect(capability.caveats).toContain(
-      "Sandbox mode non-main does not sandbox the agent main session."
-    );
+    expect("risk" in capability).toBe(false);
+    expect("caveats" in capability).toBe(false);
   });
 });

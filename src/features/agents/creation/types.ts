@@ -20,13 +20,7 @@ export type AgentPresetBundle =
   | "coordinator"
   | "blank";
 export type AgentPresetBundleGroup = "knowledge" | "builder" | "operations" | "baseline";
-export type GuidedPresetRiskLevel = "low" | "moderate" | "high";
-export type GuidedPresetCapabilityChipId =
-  | "exec"
-  | "internet"
-  | "filesystem"
-  | "sandbox"
-  | "heartbeat";
+export type GuidedPresetCapabilityChipId = "command" | "web" | "files";
 
 export type GuidedPresetCapabilityChip = {
   id: GuidedPresetCapabilityChipId;
@@ -37,8 +31,6 @@ export type GuidedPresetCapabilityChip = {
 
 export type GuidedPresetCapabilitySummary = {
   chips: GuidedPresetCapabilityChip[];
-  risk: GuidedPresetRiskLevel;
-  caveats: string[];
 };
 
 export type GuidedPresetBundleDefinition = {
@@ -48,7 +40,6 @@ export type GuidedPresetBundleDefinition = {
   description: string;
   starterKit: AgentStarterKit;
   controlLevel: AgentControlLevel;
-  heartbeatEnabled: boolean;
 };
 
 export type GuidedExecAutonomy = "ask-first" | "auto";
@@ -85,6 +76,7 @@ export type AgentCreateModalSubmitPayload = {
   mode: "guided";
   name: string;
   draft: GuidedAgentCreationDraft;
+  avatarSeed?: string;
 };
 
 export type GuidedExecApprovalsPolicy = {

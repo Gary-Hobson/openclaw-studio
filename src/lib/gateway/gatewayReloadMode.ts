@@ -19,9 +19,9 @@ const resolveReloadModeFromConfig = (config: unknown): string | null => {
   if (!isRecord(config)) return null;
   const gateway = isRecord(config.gateway) ? config.gateway : null;
   const reload = gateway && isRecord(gateway.reload) ? gateway.reload : null;
-  if (!reload || typeof reload.mode !== "string") return null;
+  if (!reload || typeof reload.mode !== "string") return "hybrid";
   const mode = reload.mode.trim().toLowerCase();
-  return mode.length > 0 ? mode : null;
+  return mode.length > 0 ? mode : "hybrid";
 };
 
 export const shouldAwaitDisconnectRestartForReloadMode = (mode: string | null): boolean =>
