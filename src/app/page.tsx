@@ -104,6 +104,12 @@ import { deleteAgentViaStudio } from "@/features/agents/operations/deleteAgentOp
 import { performCronCreateFlow } from "@/features/agents/operations/cronCreateOperation";
 import { sendChatMessageViaStudio } from "@/features/agents/operations/chatSendOperation";
 import { hydrateAgentFleetFromGateway } from "@/features/agents/operations/agentFleetHydration";
+import {
+  buildConfigMutationFailureMessage,
+  resolveConfigMutationPostRunEffects,
+  resolveConfigMutationStatusLine,
+  runConfigMutationWorkflow,
+} from "@/features/agents/operations/configMutationWorkflow";
 import { useConfigMutationQueue } from "@/features/agents/operations/useConfigMutationQueue";
 import { isLocalGatewayUrl } from "@/lib/gateway/local-gateway";
 import { shouldAwaitDisconnectRestartForRemoteMutation } from "@/lib/gateway/gatewayReloadMode";
@@ -1491,42 +1497,50 @@ const AgentStudioPage = () => {
                 phase: "deleting",
               };
             });
-            await deleteAgentViaStudio({
-              client,
-              agentId,
-              fetchJson,
-              logError: (message, error) => console.error(message, error),
-            });
-            setSettingsAgentId(null);
-            if (isLocalGateway) {
+            const result = await runConfigMutationWorkflow(
+              { kind: "delete-agent", isLocalGateway },
+              {
+                executeMutation: async () => {
+                  await deleteAgentViaStudio({
+                    client,
+                    agentId,
+                    fetchJson,
+                    logError: (message, error) => console.error(message, error),
+                  });
+                  setSettingsAgentId(null);
+                },
+                shouldAwaitRemoteRestart: async () =>
+                  shouldAwaitDisconnectRestartForRemoteMutation({
+                    client,
+                    cachedConfigSnapshot: gatewayConfigSnapshot,
+                    logError: (message, error) => console.error(message, error),
+                  }),
+              }
+            );
+            const effects = resolveConfigMutationPostRunEffects(result);
+            if (effects.shouldReloadAgents) {
               await loadAgents();
+            }
+            if (effects.shouldClearBlock) {
               setDeleteAgentBlock(null);
               setMobilePane("chat");
               return;
             }
-            const shouldAwaitRestart = await shouldAwaitDisconnectRestartForRemoteMutation({
-              client,
-              cachedConfigSnapshot: gatewayConfigSnapshot,
-              logError: (message, error) => console.error(message, error),
-            });
-            if (!shouldAwaitRestart) {
-              await loadAgents();
-              setDeleteAgentBlock(null);
-              setMobilePane("chat");
-              return;
-            }
+            if (!effects.awaitingRestartPatch) return;
             setDeleteAgentBlock((current) => {
               if (!current || current.agentId !== agentId) return current;
               return {
                 ...current,
-                phase: "awaiting-restart",
-                sawDisconnect: false,
+                ...effects.awaitingRestartPatch,
               };
             });
           },
         });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to delete agent.";
+        const msg = buildConfigMutationFailureMessage({
+          kind: "delete-agent",
+          error: err,
+        });
         setDeleteAgentBlock(null);
         setError(msg);
       }
@@ -2311,46 +2325,54 @@ const AgentStudioPage = () => {
               if (!current || current.agentId !== agentId) return current;
               return { ...current, phase: "renaming" };
             });
-            await renameGatewayAgent({
-              client,
-              agentId,
-              name,
-            });
-            dispatch({
-              type: "updateAgent",
-              agentId,
-              patch: { name },
-            });
-            if (isLocalGateway) {
+            const result = await runConfigMutationWorkflow(
+              { kind: "rename-agent", isLocalGateway },
+              {
+                executeMutation: async () => {
+                  await renameGatewayAgent({
+                    client,
+                    agentId,
+                    name,
+                  });
+                  dispatch({
+                    type: "updateAgent",
+                    agentId,
+                    patch: { name },
+                  });
+                },
+                shouldAwaitRemoteRestart: async () =>
+                  shouldAwaitDisconnectRestartForRemoteMutation({
+                    client,
+                    cachedConfigSnapshot: gatewayConfigSnapshot,
+                    logError: (message, error) => console.error(message, error),
+                  }),
+              }
+            );
+            const effects = resolveConfigMutationPostRunEffects(result);
+            if (effects.shouldReloadAgents) {
               await loadAgents();
+            }
+            if (effects.shouldClearBlock) {
               setRenameAgentBlock(null);
               setMobilePane("chat");
               return;
             }
-            const shouldAwaitRestart = await shouldAwaitDisconnectRestartForRemoteMutation({
-              client,
-              cachedConfigSnapshot: gatewayConfigSnapshot,
-              logError: (message, error) => console.error(message, error),
-            });
-            if (!shouldAwaitRestart) {
-              await loadAgents();
-              setRenameAgentBlock(null);
-              setMobilePane("chat");
-              return;
-            }
+            if (!effects.awaitingRestartPatch) return;
             setRenameAgentBlock((current) => {
               if (!current || current.agentId !== agentId) return current;
               return {
                 ...current,
-                phase: "awaiting-restart",
-                sawDisconnect: false,
+                ...effects.awaitingRestartPatch,
               };
             });
           },
         });
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to rename agent.";
+        const message = buildConfigMutationFailureMessage({
+          kind: "rename-agent",
+          error: err,
+        });
         setRenameAgentBlock(null);
         setError(message);
         return false;
@@ -2427,28 +2449,24 @@ const AgentStudioPage = () => {
         ? "Applying guided setup"
         : null
     : null;
-  const renameBlockStatusLine = renameAgentBlock
-    ? renameAgentBlock.phase === "queued"
-      ? "Waiting for active runs to finish"
-      : renameAgentBlock.phase === "renaming"
-      ? "Submitting config change"
-      : !renameAgentBlock.sawDisconnect
-        ? "Waiting for gateway to restart"
-        : status === "connected"
-          ? "Gateway is back online, syncing agents"
-          : "Gateway restart in progress"
-    : null;
-  const deleteBlockStatusLine = deleteAgentBlock
-    ? deleteAgentBlock.phase === "queued"
-      ? "Waiting for active runs to finish"
-      : deleteAgentBlock.phase === "deleting"
-      ? "Submitting config change"
-      : !deleteAgentBlock.sawDisconnect
-        ? "Waiting for gateway to restart"
-        : status === "connected"
-          ? "Gateway is back online, syncing agents"
-          : "Gateway restart in progress"
-      : null;
+  const renameBlockStatusLine = resolveConfigMutationStatusLine({
+    block: renameAgentBlock
+      ? {
+          phase: renameAgentBlock.phase === "renaming" ? "mutating" : renameAgentBlock.phase,
+          sawDisconnect: renameAgentBlock.sawDisconnect,
+        }
+      : null,
+    status,
+  });
+  const deleteBlockStatusLine = resolveConfigMutationStatusLine({
+    block: deleteAgentBlock
+      ? {
+          phase: deleteAgentBlock.phase === "deleting" ? "mutating" : deleteAgentBlock.phase,
+          sawDisconnect: deleteAgentBlock.sawDisconnect,
+        }
+      : null,
+    status,
+  });
 
   useEffect(() => {
     if (status === "connecting") {

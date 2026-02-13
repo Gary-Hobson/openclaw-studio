@@ -6,6 +6,12 @@ export type MutationWorkflowResult = {
   disposition: "completed" | "awaiting-restart";
 };
 
+export type MutationWorkflowPostRunEffects = {
+  shouldReloadAgents: boolean;
+  shouldClearBlock: boolean;
+  awaitingRestartPatch: MutationStatusBlock | null;
+};
+
 export type MutationWorkflowDeps = {
   executeMutation: () => Promise<void>;
   shouldAwaitRemoteRestart: () => Promise<boolean>;
@@ -82,5 +88,22 @@ export const buildAwaitingRestartPatch = () => {
   return {
     phase: "awaiting-restart" as const,
     sawDisconnect: false,
+  };
+};
+
+export const resolveConfigMutationPostRunEffects = (
+  result: MutationWorkflowResult
+): MutationWorkflowPostRunEffects => {
+  if (result.disposition === "awaiting-restart") {
+    return {
+      shouldReloadAgents: false,
+      shouldClearBlock: false,
+      awaitingRestartPatch: buildAwaitingRestartPatch(),
+    };
+  }
+  return {
+    shouldReloadAgents: true,
+    shouldClearBlock: true,
+    awaitingRestartPatch: null,
   };
 };
