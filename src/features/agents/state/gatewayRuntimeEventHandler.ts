@@ -16,6 +16,12 @@ import {
   type AgentEventPayload,
   type ChatEventPayload,
 } from "@/features/agents/state/runtimeEventBridge";
+import {
+  decideRuntimeAgentEvent,
+  decideRuntimeChatEvent,
+  decideSummaryRefreshEvent,
+  type RuntimePolicyIntent,
+} from "@/features/agents/state/runtimeEventPolicy";
 import { type EventFrame, isSameSessionKey } from "@/lib/gateway/GatewayClient";
 import {
   extractText,
@@ -267,6 +273,81 @@ export function createGatewayRuntimeEventHandler(
     });
   const clearPendingLivePatch = deps.clearPendingLivePatch;
 
+  const applyRuntimePolicyIntents = (
+    intents: RuntimePolicyIntent[],
+    options?: { agentForLatestUpdate?: AgentState | undefined }
+  ) => {
+    for (const intent of intents) {
+      if (intent.kind === "ignore") {
+        continue;
+      }
+      if (intent.kind === "clearRunTracking") {
+        clearRunTracking(intent.runId);
+        continue;
+      }
+      if (intent.kind === "markRunClosed") {
+        markRunClosed(intent.runId);
+        continue;
+      }
+      if (intent.kind === "markTerminalRunSeen") {
+        markTerminalRunSeen(intent.runId);
+        continue;
+      }
+      if (intent.kind === "markThinkingStarted") {
+        if (!thinkingStartedAtByRun.has(intent.runId)) {
+          thinkingStartedAtByRun.set(intent.runId, intent.at);
+        }
+        continue;
+      }
+      if (intent.kind === "clearPendingLivePatch") {
+        clearPendingLivePatch(intent.agentId);
+        continue;
+      }
+      if (intent.kind === "queueLivePatch") {
+        deps.queueLivePatch(intent.agentId, intent.patch);
+        continue;
+      }
+      if (intent.kind === "dispatchUpdateAgent") {
+        deps.dispatch({
+          type: "updateAgent",
+          agentId: intent.agentId,
+          patch: intent.patch,
+        });
+        continue;
+      }
+      if (intent.kind === "requestHistoryRefresh") {
+        void deps.requestHistoryRefresh({
+          agentId: intent.agentId,
+          reason: intent.reason,
+        });
+        continue;
+      }
+      if (intent.kind === "queueLatestUpdate") {
+        const agent =
+          options?.agentForLatestUpdate?.agentId === intent.agentId
+            ? options.agentForLatestUpdate
+            : deps.getAgents().find((entry) => entry.agentId === intent.agentId);
+        if (agent) {
+          void deps.updateSpecialLatestUpdate(intent.agentId, agent, intent.message);
+        }
+        continue;
+      }
+      if (intent.kind === "scheduleSummaryRefresh") {
+        if (intent.includeHeartbeatRefresh) {
+          deps.bumpHeartbeatTick();
+          deps.refreshHeartbeatLatestUpdate();
+        }
+        if (summaryRefreshTimer !== null) {
+          deps.clearTimeout(summaryRefreshTimer);
+        }
+        summaryRefreshTimer = deps.setTimeout(() => {
+          summaryRefreshTimer = null;
+          void deps.loadSummarySnapshot();
+        }, intent.delayMs);
+      }
+    }
+  };
+
   const dispose = () => {
     if (summaryRefreshTimer !== null) {
       deps.clearTimeout(summaryRefreshTimer);
@@ -340,11 +421,51 @@ export function createGatewayRuntimeEventHandler(
     const nextThinking = extractThinking(payload.message ?? payload);
     const toolLines = extractToolLines(payload.message ?? payload);
     const isToolRole = role === "tool" || role === "toolResult";
+    const assistantCompletionAt = resolveAssistantCompletionTimestamp({
+      role,
+      state: payload.state,
+      message: payload.message,
+      now: now(),
+    });
 
     if (payload.state === "delta") {
       if (typeof nextTextRaw === "string" && isUiMetadataPrefix(nextTextRaw.trim())) {
         return;
       }
+      const deltaIntents = decideRuntimeChatEvent({
+        agentId,
+        state: payload.state,
+        runId: payload.runId ?? null,
+        role,
+        activeRunId: activeRunId || null,
+        agentStatus: agent?.status ?? "idle",
+        now: now(),
+        agentRunStartedAt: agent?.runStartedAt ?? null,
+        nextThinking,
+        nextText,
+        hasThinkingStarted: payload.runId ? thinkingStartedAtByRun.has(payload.runId) : false,
+        isClosedRun: payload.runId ? isClosedRun(payload.runId) : false,
+        isTerminalRunSeen: payload.runId ? terminalChatRunSeen.has(payload.runId) : false,
+        shouldRequestHistoryRefresh: false,
+        shouldUpdateLastResult: false,
+        shouldSetRunIdle: false,
+        shouldSetRunError: false,
+        lastResultText: null,
+        assistantCompletionAt: null,
+        shouldQueueLatestUpdate: false,
+        latestUpdateMessage: null,
+      });
+      const hasOnlyDeltaCleanup =
+        deltaIntents.length > 0 &&
+        deltaIntents.every((intent) => intent.kind === "clearRunTracking");
+      if (hasOnlyDeltaCleanup) {
+        applyRuntimePolicyIntents(deltaIntents, { agentForLatestUpdate: agent });
+        return;
+      }
+      if (deltaIntents.some((intent) => intent.kind === "ignore")) {
+        return;
+      }
+      applyRuntimePolicyIntents(deltaIntents, { agentForLatestUpdate: agent });
       appendUniqueToolLines({
         agentId,
         runId: payload.runId ?? null,
@@ -353,41 +474,54 @@ export function createGatewayRuntimeEventHandler(
         timestampMs: now(),
         lines: toolLines,
       });
-      const patch: Partial<AgentState> = {};
-      if (nextThinking) {
-        if (payload.runId && !thinkingStartedAtByRun.has(payload.runId)) {
-          thinkingStartedAtByRun.set(payload.runId, now());
-        }
-        patch.thinkingTrace = nextThinking;
-        patch.status = "running";
-      }
-      if (typeof nextText === "string") {
-        patch.streamText = nextText;
-        patch.status = "running";
-      }
-      if (agent && agent.runStartedAt === null) {
-        patch.runStartedAt = now();
-      }
-      if (Object.keys(patch).length > 0) {
-        deps.queueLivePatch(agentId, patch);
-      }
+      return;
+    }
+
+    const shouldRequestHistoryRefresh =
+      payload.state === "final" &&
+      !nextThinking &&
+      role === "assistant" &&
+      Boolean(agent) &&
+      !agent.outputLines.some((line) => isTraceMarkdown(line.trim()));
+    const shouldUpdateLastResult =
+      payload.state === "final" && !isToolRole && typeof nextText === "string";
+    const shouldQueueLatestUpdate =
+      payload.state === "final" && Boolean(agent?.lastUserMessage && !agent.latestOverride);
+    const chatIntents = decideRuntimeChatEvent({
+      agentId,
+      state: payload.state,
+      runId: payload.runId ?? null,
+      role,
+      activeRunId: activeRunId || null,
+      agentStatus: agent?.status ?? "idle",
+      now: now(),
+      agentRunStartedAt: agent?.runStartedAt ?? null,
+      nextThinking,
+      nextText,
+      hasThinkingStarted: payload.runId ? thinkingStartedAtByRun.has(payload.runId) : false,
+      isClosedRun: payload.runId ? isClosedRun(payload.runId) : false,
+      isTerminalRunSeen: payload.runId ? terminalChatRunSeen.has(payload.runId) : false,
+      shouldRequestHistoryRefresh,
+      shouldUpdateLastResult,
+      shouldSetRunIdle: Boolean(payload.runId && agent?.runId === payload.runId && payload.state !== "error"),
+      shouldSetRunError: Boolean(payload.runId && agent?.runId === payload.runId && payload.state === "error"),
+      lastResultText: shouldUpdateLastResult ? nextText : null,
+      assistantCompletionAt: payload.state === "final" ? assistantCompletionAt : null,
+      shouldQueueLatestUpdate,
+      latestUpdateMessage: shouldQueueLatestUpdate ? (agent?.lastUserMessage ?? null) : null,
+    });
+    const hasOnlyRunCleanup =
+      chatIntents.length > 0 &&
+      chatIntents.every((intent) => intent.kind === "clearRunTracking");
+    if (hasOnlyRunCleanup) {
+      applyRuntimePolicyIntents(chatIntents, { agentForLatestUpdate: agent });
+      return;
+    }
+    if (chatIntents.some((intent) => intent.kind === "ignore")) {
       return;
     }
 
     if (payload.state === "final") {
-      if (payload.runId && agent?.runId && agent.runId !== payload.runId) {
-        clearRunTracking(payload.runId);
-        return;
-      }
-      if (payload.runId && terminalChatRunSeen.has(payload.runId)) {
-        return;
-      }
-      clearPendingLivePatch(agentId);
-      if (payload.runId) {
-        markTerminalRunSeen(payload.runId);
-      }
-      clearRunTracking(payload.runId ?? null);
-      markRunClosed(payload.runId ?? null);
       if (!nextThinking && role === "assistant" && !thinkingDebugBySession.has(payload.sessionKey)) {
         thinkingDebugBySession.add(payload.sessionKey);
         logWarn("No thinking trace extracted from chat event.", {
@@ -397,12 +531,6 @@ export function createGatewayRuntimeEventHandler(
       }
       const thinkingText = nextThinking ?? agent?.thinkingTrace ?? null;
       const thinkingLine = thinkingText ? formatThinkingMarkdown(thinkingText) : "";
-      const assistantCompletionAt = resolveAssistantCompletionTimestamp({
-        role,
-        state: payload.state,
-        message: payload.message,
-        now: now(),
-      });
       if (role === "assistant") {
         const startedAt = payload.runId ? thinkingStartedAtByRun.get(payload.runId) : undefined;
         const thinkingDurationMs =
@@ -446,17 +574,6 @@ export function createGatewayRuntimeEventHandler(
         timestampMs: assistantCompletionAt ?? now(),
         lines: toolLines,
       });
-      if (
-        !thinkingLine &&
-        role === "assistant" &&
-        agent &&
-        !agent.outputLines.some((line) => isTraceMarkdown(line.trim()))
-      ) {
-        void deps.requestHistoryRefresh({
-          agentId,
-          reason: "chat-final-no-trace",
-        });
-      }
       if (!isToolRole && typeof nextText === "string") {
         dispatchOutput(agentId, nextText, {
           source: "runtime-chat",
@@ -466,49 +583,12 @@ export function createGatewayRuntimeEventHandler(
           role: "assistant",
           kind: "assistant",
         });
-        deps.dispatch({
-          type: "updateAgent",
-          agentId,
-          patch: { lastResult: nextText },
-        });
       }
-      if (agent?.lastUserMessage && !agent.latestOverride) {
-        void deps.updateSpecialLatestUpdate(agentId, agent, agent.lastUserMessage);
-      }
-      const terminalPatch: Partial<AgentState> = {
-        streamText: null,
-        thinkingTrace: null,
-        runStartedAt: null,
-        ...(typeof assistantCompletionAt === "number"
-          ? { lastAssistantMessageAt: assistantCompletionAt }
-          : {}),
-      };
-      if (payload.runId && agent?.runId === payload.runId) {
-        terminalPatch.status = "idle";
-        terminalPatch.runId = null;
-      }
-      deps.dispatch({
-        type: "updateAgent",
-        agentId,
-        patch: terminalPatch,
-      });
+      applyRuntimePolicyIntents(chatIntents, { agentForLatestUpdate: agent });
       return;
     }
 
     if (payload.state === "aborted") {
-      if (payload.runId && agent?.runId && agent.runId !== payload.runId) {
-        clearRunTracking(payload.runId);
-        return;
-      }
-      if (payload.runId && terminalChatRunSeen.has(payload.runId)) {
-        return;
-      }
-      clearPendingLivePatch(agentId);
-      if (payload.runId) {
-        markTerminalRunSeen(payload.runId);
-      }
-      clearRunTracking(payload.runId ?? null);
-      markRunClosed(payload.runId ?? null);
       dispatchOutput(agentId, "Run aborted.", {
         source: "runtime-chat",
         runId: payload.runId ?? null,
@@ -517,37 +597,11 @@ export function createGatewayRuntimeEventHandler(
         role: "assistant",
         kind: "assistant",
       });
-      const patch: Partial<AgentState> = {
-        streamText: null,
-        thinkingTrace: null,
-        runStartedAt: null,
-      };
-      if (payload.runId && agent?.runId === payload.runId) {
-        patch.status = "idle";
-        patch.runId = null;
-      }
-      deps.dispatch({
-        type: "updateAgent",
-        agentId,
-        patch,
-      });
+      applyRuntimePolicyIntents(chatIntents, { agentForLatestUpdate: agent });
       return;
     }
 
     if (payload.state === "error") {
-      if (payload.runId && agent?.runId && agent.runId !== payload.runId) {
-        clearRunTracking(payload.runId);
-        return;
-      }
-      if (payload.runId && terminalChatRunSeen.has(payload.runId)) {
-        return;
-      }
-      clearPendingLivePatch(agentId);
-      if (payload.runId) {
-        markTerminalRunSeen(payload.runId);
-      }
-      clearRunTracking(payload.runId ?? null);
-      markRunClosed(payload.runId ?? null);
       dispatchOutput(
         agentId,
         payload.errorMessage ? `Error: ${payload.errorMessage}` : "Run error.",
@@ -560,20 +614,7 @@ export function createGatewayRuntimeEventHandler(
           kind: "assistant",
         }
       );
-      const patch: Partial<AgentState> = {
-        streamText: null,
-        thinkingTrace: null,
-        runStartedAt: null,
-      };
-      if (payload.runId && agent?.runId === payload.runId) {
-        patch.status = "error";
-        patch.runId = null;
-      }
-      deps.dispatch({
-        type: "updateAgent",
-        agentId,
-        patch,
-      });
+      applyRuntimePolicyIntents(chatIntents, { agentForLatestUpdate: agent });
     }
   };
 
@@ -590,26 +631,30 @@ export function createGatewayRuntimeEventHandler(
     const data =
       payload.data && typeof payload.data === "object" ? (payload.data as Record<string, unknown>) : null;
     const phase = typeof data?.phase === "string" ? data.phase : "";
-    if (!(phase === "start" && payload.stream === "lifecycle") && isClosedRun(payload.runId)) {
-      logTranscriptDebugMetric("late_event_ignored_closed_run", {
-        stream: payload.stream,
-        runId: payload.runId,
-      });
+    const activeRunId = agent.runId?.trim() ?? "";
+    const agentPreflightIntents = decideRuntimeAgentEvent({
+      runId: payload.runId,
+      stream,
+      phase,
+      activeRunId: activeRunId || null,
+      agentStatus: agent.status,
+      isClosedRun: isClosedRun(payload.runId),
+    });
+    const hasOnlyPreflightCleanup =
+      agentPreflightIntents.length > 0 &&
+      agentPreflightIntents.every((intent) => intent.kind === "clearRunTracking");
+    if (hasOnlyPreflightCleanup) {
+      applyRuntimePolicyIntents(agentPreflightIntents);
       return;
     }
-    const activeRunId = agent.runId?.trim() ?? "";
-
-    if (activeRunId && activeRunId !== payload.runId) {
-      if (!(stream === "lifecycle" && phase === "start")) {
-        clearRunTracking(payload.runId);
-        return;
+    if (agentPreflightIntents.some((intent) => intent.kind === "ignore")) {
+      if (agentPreflightIntents.some((intent) => intent.kind === "ignore" && intent.reason === "closed-run-event")) {
+        logTranscriptDebugMetric("late_event_ignored_closed_run", {
+          stream: payload.stream,
+          runId: payload.runId,
+        });
       }
-    }
-    if (!activeRunId && agent.status !== "running") {
-      if (!(stream === "lifecycle" && phase === "start")) {
-        clearRunTracking(payload.runId);
-        return;
-      }
+      return;
     }
 
     markActivityThrottled(match);
@@ -827,18 +872,11 @@ export function createGatewayRuntimeEventHandler(
   const handleEvent = (event: EventFrame) => {
     const eventKind = classifyGatewayEventKind(event.event);
     if (eventKind === "summary-refresh") {
-      if (deps.getStatus() !== "connected") return;
-      if (event.event === "heartbeat") {
-        deps.bumpHeartbeatTick();
-        deps.refreshHeartbeatLatestUpdate();
-      }
-      if (summaryRefreshTimer !== null) {
-        deps.clearTimeout(summaryRefreshTimer);
-      }
-      summaryRefreshTimer = deps.setTimeout(() => {
-        summaryRefreshTimer = null;
-        void deps.loadSummarySnapshot();
-      }, 750);
+      const summaryIntents = decideSummaryRefreshEvent({
+        event: event.event,
+        status: deps.getStatus(),
+      });
+      applyRuntimePolicyIntents(summaryIntents);
       return;
     }
     if (eventKind === "runtime-chat") {
