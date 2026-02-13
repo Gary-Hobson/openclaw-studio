@@ -140,7 +140,7 @@ describe("compileGuidedAgentCreation", () => {
     expect(draft.controlLevel).toBe("autopilot");
     expect(draft.controls.toolsProfile).toBe("coding");
     expect(draft.controls.allowExec).toBe(true);
-    expect(draft.controls.sandboxMode).toBe("all");
+    expect(draft.controls.sandboxMode).toBe("non-main");
     expect(draft.controls.workspaceAccess).toBe("rw");
     expect(draft.controls.toolsAllow).toContain("group:web");
     expect(draft.controls.toolsAllow).toContain("group:fs");
@@ -158,7 +158,7 @@ describe("compileGuidedAgentCreation", () => {
     expect(draft.controls.allowExec).toBe(true);
     expect(draft.controls.execAutonomy).toBe("auto");
     expect(draft.controls.fileEditAutonomy).toBe("auto-edit");
-    expect(draft.controls.sandboxMode).toBe("all");
+    expect(draft.controls.sandboxMode).toBe("non-main");
     expect(draft.controls.workspaceAccess).toBe("rw");
   });
 

@@ -459,7 +459,7 @@ export const AgentCreateModal = ({
           execAutonomy: "auto",
           approvalSecurity: "full",
           approvalAsk: "off",
-          sandboxMode: "all",
+          sandboxMode: "non-main",
         },
       };
     });
@@ -549,7 +549,7 @@ export const AgentCreateModal = ({
         execAutonomy: "auto",
         approvalSecurity: "full",
         approvalAsk: "off",
-        sandboxMode: "all",
+        sandboxMode: "non-main",
       };
       return {
         ...current,
