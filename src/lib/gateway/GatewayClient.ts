@@ -417,6 +417,42 @@ const MAX_AUTO_RETRY_ATTEMPTS = 20;
 const INITIAL_RETRY_DELAY_MS = 2_000;
 const MAX_RETRY_DELAY_MS = 30_000;
 
+const NON_RETRYABLE_CONNECT_ERROR_CODES = new Set([
+  "studio.gateway_url_missing",
+  "studio.gateway_token_missing",
+  "studio.gateway_url_invalid",
+  "studio.settings_load_failed",
+]);
+
+const isNonRetryableConnectErrorCode = (code: string | null): boolean => {
+  const normalized = code?.trim().toLowerCase() ?? "";
+  if (!normalized) return false;
+  return NON_RETRYABLE_CONNECT_ERROR_CODES.has(normalized);
+};
+
+export const resolveGatewayAutoRetryDelayMs = (params: {
+  status: GatewayStatus;
+  didAutoConnect: boolean;
+  wasManualDisconnect: boolean;
+  gatewayUrl: string;
+  errorMessage: string | null;
+  connectErrorCode: string | null;
+  attempt: number;
+}): number | null => {
+  if (params.status !== "disconnected") return null;
+  if (!params.didAutoConnect) return null;
+  if (params.wasManualDisconnect) return null;
+  if (!params.gatewayUrl.trim()) return null;
+  if (params.attempt >= MAX_AUTO_RETRY_ATTEMPTS) return null;
+  if (isNonRetryableConnectErrorCode(params.connectErrorCode)) return null;
+  if (params.connectErrorCode === null && isAuthError(params.errorMessage)) return null;
+
+  return Math.min(
+    INITIAL_RETRY_DELAY_MS * Math.pow(1.5, params.attempt),
+    MAX_RETRY_DELAY_MS
+  );
+};
+
 export const useGatewayConnection = (
   settingsCoordinator: StudioSettingsCoordinatorLike
 ): GatewayConnectionState => {
@@ -434,6 +470,7 @@ export const useGatewayConnection = (
   );
   const [status, setStatus] = useState<GatewayStatus>("disconnected");
   const [error, setError] = useState<string | null>(null);
+  const [connectErrorCode, setConnectErrorCode] = useState<string | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   useEffect(() => {
@@ -484,6 +521,9 @@ export const useGatewayConnection = (
       setStatus(nextStatus);
       if (nextStatus !== "connecting") {
         setError(null);
+        if (nextStatus === "connected") {
+          setConnectErrorCode(null);
+        }
       }
     });
   }, [client]);
@@ -500,6 +540,7 @@ export const useGatewayConnection = (
 
   const connect = useCallback(async () => {
     setError(null);
+    setConnectErrorCode(null);
     wasManualDisconnectRef.current = false;
     try {
       await settingsCoordinator.flushPending();
@@ -516,6 +557,7 @@ export const useGatewayConnection = (
       });
       retryAttemptRef.current = 0;
     } catch (err) {
+      setConnectErrorCode(err instanceof GatewayResponseError ? err.code : null);
       setError(formatGatewayError(err));
     }
   }, [client, gatewayUrl, settingsCoordinator, token]);
@@ -530,18 +572,17 @@ export const useGatewayConnection = (
 
   // Auto-retry on disconnect (gateway busy, network blip, etc.)
   useEffect(() => {
-    if (status !== "disconnected") return;
-    if (!didAutoConnect.current) return;
-    if (wasManualDisconnectRef.current) return;
-    if (!gatewayUrl.trim()) return;
-    if (isAuthError(error)) return;
-    if (retryAttemptRef.current >= MAX_AUTO_RETRY_ATTEMPTS) return;
-
     const attempt = retryAttemptRef.current;
-    const delay = Math.min(
-      INITIAL_RETRY_DELAY_MS * Math.pow(1.5, attempt),
-      MAX_RETRY_DELAY_MS
-    );
+    const delay = resolveGatewayAutoRetryDelayMs({
+      status,
+      didAutoConnect: didAutoConnect.current,
+      wasManualDisconnect: wasManualDisconnectRef.current,
+      gatewayUrl,
+      errorMessage: error,
+      connectErrorCode,
+      attempt,
+    });
+    if (delay === null) return;
     retryTimerRef.current = setTimeout(() => {
       retryAttemptRef.current = attempt + 1;
       void connect();
@@ -553,7 +594,7 @@ export const useGatewayConnection = (
         retryTimerRef.current = null;
       }
     };
-  }, [connect, error, gatewayUrl, status]);
+  }, [connect, connectErrorCode, error, gatewayUrl, status]);
 
   // Reset retry count on successful connection
   useEffect(() => {
@@ -588,16 +629,19 @@ export const useGatewayConnection = (
     setGatewayUrl(localGatewayDefaults.url);
     setToken(localGatewayDefaults.token);
     setError(null);
+    setConnectErrorCode(null);
   }, [localGatewayDefaults]);
 
   const disconnect = useCallback(() => {
     setError(null);
+    setConnectErrorCode(null);
     wasManualDisconnectRef.current = true;
     client.disconnect();
   }, [client]);
 
   const clearError = useCallback(() => {
     setError(null);
+    setConnectErrorCode(null);
   }, []);
 
   return {
