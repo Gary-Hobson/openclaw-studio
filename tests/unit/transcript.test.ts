@@ -204,6 +204,99 @@ describe("transcript", () => {
     expect(merged.entries.every((entry) => entry.confirmed)).toBe(true);
   });
 
+  it("reconciles history replay against an already confirmed runtime assistant entry", () => {
+    const existing = [
+      createEntry({
+        line: "previous assistant answer",
+        source: "runtime-chat",
+        sequence: 20,
+        timestampMs: 2_000,
+        role: "assistant",
+        kind: "assistant",
+        runId: "run-previous",
+        confirmed: true,
+        entryId: "run:run-previous:assistant:final",
+      }),
+    ];
+
+    const history = [
+      createEntry({
+        line: "previous assistant answer",
+        source: "history",
+        sequence: 50,
+        timestampMs: 2_000,
+        role: "assistant",
+        kind: "assistant",
+        confirmed: true,
+        entryId: "history:assistant:previous",
+      }),
+    ];
+
+    const merged = mergeTranscriptEntriesWithHistory({
+      existingEntries: existing,
+      historyEntries: history,
+    });
+
+    expect(buildOutputLinesFromTranscriptEntries(merged.entries)).toEqual([
+      "previous assistant answer",
+    ]);
+    expect(merged.entries).toHaveLength(1);
+    expect(merged.mergedCount).toBe(0);
+    expect(merged.confirmedCount).toBe(1);
+  });
+
+  it("matches each existing assistant candidate at most once per merge pass", () => {
+    const existing = [
+      createEntry({
+        line: "same assistant answer",
+        source: "runtime-chat",
+        sequence: 20,
+        timestampMs: 2_000,
+        role: "assistant",
+        kind: "assistant",
+        runId: "run-previous",
+        confirmed: true,
+        entryId: "run:run-previous:assistant:final",
+      }),
+    ];
+
+    const history = [
+      createEntry({
+        line: "same assistant answer",
+        source: "history",
+        sequence: 50,
+        timestampMs: 2_000,
+        role: "assistant",
+        kind: "assistant",
+        confirmed: true,
+        entryId: "history:assistant:1",
+      }),
+      createEntry({
+        line: "same assistant answer",
+        source: "history",
+        sequence: 51,
+        timestampMs: 2_000,
+        role: "assistant",
+        kind: "assistant",
+        confirmed: true,
+        entryId: "history:assistant:2",
+      }),
+    ];
+
+    const merged = mergeTranscriptEntriesWithHistory({
+      existingEntries: existing,
+      historyEntries: history,
+    });
+
+    expect(buildOutputLinesFromTranscriptEntries(merged.entries)).toEqual([
+      "same assistant answer",
+      "same assistant answer",
+    ]);
+    expect(merged.entries).toHaveLength(2);
+    expect(merged.confirmedCount).toBe(1);
+    expect(merged.mergedCount).toBe(1);
+  });
+
   it("keeps repeated identical messages as separate entries", () => {
     const existing = [
       createEntry({

@@ -336,13 +336,15 @@ const resolveCandidateTimestampDelta = (
 
 const findHistoryMatchCandidateIndex = (
   existing: TranscriptEntry[],
-  historyEntry: TranscriptEntry
+  historyEntry: TranscriptEntry,
+  matchedCandidateIndexes: Set<number>
 ): { index: number; conflict: boolean } | null => {
   const normalizedTarget = normalizeComparableText(historyEntry.text);
   const candidates: number[] = [];
   for (let i = 0; i < existing.length; i += 1) {
     const candidate = existing[i];
-    if (!candidate || candidate.confirmed) continue;
+    if (!candidate) continue;
+    if (matchedCandidateIndexes.has(i)) continue;
     if (candidate.sessionKey !== historyEntry.sessionKey) continue;
     if (candidate.kind !== historyEntry.kind || candidate.role !== historyEntry.role) continue;
     if (normalizeComparableText(candidate.text) !== normalizedTarget) continue;
@@ -375,6 +377,7 @@ export const mergeTranscriptEntriesWithHistory = (params: {
   historyEntries: TranscriptEntry[];
 }): MergeTranscriptEntriesResult => {
   const next = [...params.existingEntries];
+  const matchedCandidateIndexes = new Set<number>();
   const byEntryId = new Map<string, number>();
   for (let i = 0; i < next.length; i += 1) {
     byEntryId.set(next[i]!.entryId, i);
@@ -392,10 +395,11 @@ export const mergeTranscriptEntriesWithHistory = (params: {
         confirmed: true,
         timestampMs: historyEntry.timestampMs ?? current.timestampMs,
       };
+      matchedCandidateIndexes.add(existingById);
       continue;
     }
 
-    const matched = findHistoryMatchCandidateIndex(next, historyEntry);
+    const matched = findHistoryMatchCandidateIndex(next, historyEntry, matchedCandidateIndexes);
     if (matched) {
       if (matched.conflict) {
         conflictCount += 1;
@@ -408,6 +412,7 @@ export const mergeTranscriptEntriesWithHistory = (params: {
         runId: current.runId ?? historyEntry.runId,
       };
       confirmedCount += 1;
+      matchedCandidateIndexes.add(matched.index);
       byEntryId.set(historyEntry.entryId, matched.index);
       continue;
     }
@@ -415,6 +420,7 @@ export const mergeTranscriptEntriesWithHistory = (params: {
     const appendedIndex = next.length;
     next.push(historyEntry);
     byEntryId.set(historyEntry.entryId, appendedIndex);
+    matchedCandidateIndexes.add(appendedIndex);
     mergedCount += 1;
   }
 

@@ -167,7 +167,7 @@ export function createGatewayRuntimeEventHandler(
 ): GatewayRuntimeEventHandler {
   const now = deps.now ?? (() => Date.now());
   const CLOSED_RUN_TTL_MS = 30_000;
-  const LIFECYCLE_FALLBACK_DELAY_MS = 300;
+  const LIFECYCLE_FALLBACK_DELAY_MS = 0;
   const chatRunSeen = new Set<string>();
   const assistantStreamByRun = new Map<string, string>();
   const thinkingStreamByRun = new Map<string, string>();

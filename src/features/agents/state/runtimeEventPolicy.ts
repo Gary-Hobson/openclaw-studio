@@ -98,6 +98,9 @@ export const decideRuntimeChatEvent = (
       patch.streamText = input.nextText;
       patch.status = "running";
     }
+    if (runId) {
+      patch.runId = runId;
+    }
     if (input.agentRunStartedAt === null) {
       patch.runStartedAt = input.now;
     }

@@ -39,6 +39,7 @@ import {
 } from "@/features/agents/state/runtimeEventBridge";
 import type { AgentState } from "@/features/agents/state/store";
 import { createGatewayRuntimeEventHandler } from "@/features/agents/state/gatewayRuntimeEventHandler";
+import { mergePendingLivePatch } from "@/features/agents/state/livePatchQueue";
 import {
   type CronJobSummary,
   filterCronJobsForAgent,
@@ -433,7 +434,7 @@ const AgentStudioPage = () => {
     const key = agentId.trim();
     if (!key) return;
     const existing = pendingLivePatchesRef.current.get(key);
-    pendingLivePatchesRef.current.set(key, existing ? { ...existing, ...patch } : patch);
+    pendingLivePatchesRef.current.set(key, mergePendingLivePatch(existing, patch));
     livePatchBatcherRef.current.schedule();
   }, []);
 
@@ -1732,6 +1733,7 @@ const AgentStudioPage = () => {
         pendingDraftTimersRef.current.delete(agentId);
       }
       pendingDraftValuesRef.current.delete(agentId);
+      clearPendingLivePatch(agentId);
       await sendChatMessageViaStudio({
         client,
         dispatch,
@@ -1743,7 +1745,7 @@ const AgentStudioPage = () => {
         clearRunTracking: (runId) => runtimeEventHandlerRef.current?.clearRunTracking(runId),
       });
     },
-    [client, dispatch]
+    [client, clearPendingLivePatch, dispatch]
   );
 
   const handleStopRun = useCallback(

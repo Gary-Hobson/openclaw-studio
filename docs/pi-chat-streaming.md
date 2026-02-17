@@ -26,9 +26,24 @@ Non-scope:
 
 Studio vendors the browser Gateway client used to speak the Gateway protocol:
 - Vendored client: `src/lib/gateway/openclaw/GatewayBrowserClient.ts`
-- Sync script (from an OpenClaw checkout): `scripts/sync-openclaw-gateway-client.ts`
+- Sync script: `scripts/sync-openclaw-gateway-client.ts`
+- Current sync source path used by that script: `~/clawdbot/ui/src/ui/gateway.ts`
+
+Important:
+- Studio does not currently sync `GatewayBrowserClient.ts` directly from `~/openclaw`.
+- If protocol mismatch is suspected, first verify the sync source file and the upstream Gateway runtime/protocol files are aligned.
 
 If a protocol mismatch is suspected (missing event fields, renamed streams, different error codes), start by checking whether Studio’s vendored client is in sync with the Gateway version you’re running.
+
+## Upstream Source Of Truth (OpenClaw)
+
+For chat streaming behavior, these upstream files are authoritative:
+- `~/openclaw/src/gateway/protocol/schema/logs-chat.ts` (`chat.send`, `chat.history`, and chat event schema)
+- `~/openclaw/src/gateway/server-methods/chat.ts` (`chat.send` ack + idempotency, `chat.history` payload shaping/sanitization)
+- `~/openclaw/src/gateway/server-chat.ts` (`agent` event fanout and synthetic `chat` delta/final bridging)
+- `~/openclaw/src/agents/pi-embedded-subscribe.ts` and handlers (`assistant`/`tool`/`lifecycle` stream emission)
+
+When updating this doc, verify behavior against those files, not assumptions.
 
 ## Terminology
 
@@ -77,6 +92,7 @@ This is the “happy path” you want in your head when debugging:
 4. While the run is executing, the Gateway may stream:
    - `event: "agent"` frames for live partial output (`stream: "assistant"`), live thinking (`reason*`/`think*` streams), tool calls/results (`stream: "tool"`), and lifecycle (`stream: "lifecycle"`).
    - `event: "chat"` frames for the chat message stream (`state: "delta" | "final" | ...`).
+   - Both streams can describe the same run progression from different layers (`agent` stream events and `chat` message events), so Studio must merge idempotently.
 5. Studio merges those events into:
    - live fields (`streamText`, `thinkingTrace`) via batched `queueLivePatch` (fast UI updates without committing to the transcript yet)
    - committed transcript lines (`outputLines`) via `appendOutput` (final messages, tool lines, meta/timestamp, thinking trace)
@@ -206,6 +222,7 @@ Key behaviors (Studio-side):
   - tool call/result markdown lines when present
   - the assistant text (if any)
 - If a `final` assistant message arrives without an extractable thinking trace, Studio may request `chat.history` as recovery.
+- `chat.send` is idempotency-keyed upstream and returns a started ack before async completion; this is why history reconciliation can race with runtime events and must be idempotent.
 
 ### `event: "agent"` payload
 

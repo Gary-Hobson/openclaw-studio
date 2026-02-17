@@ -80,6 +80,7 @@ describe("runtime event policy", () => {
       patch: {
         thinkingTrace: "thinking",
         streamText: "answer",
+        runId: "run-1",
         status: "running",
         runStartedAt: 1000,
       },

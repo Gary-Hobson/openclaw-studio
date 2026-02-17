@@ -331,4 +331,121 @@ describe("historySyncOperation integration", () => {
       transcriptEntries.filter((entry) => entry.kind === "assistant" && entry.text === "same line")
     ).toHaveLength(2);
   });
+
+  it("does not replay prior confirmed assistant turn during running history refresh", async () => {
+    const sessionKey = "agent:agent-1:main";
+    const priorUser = createTranscriptEntryFromLine({
+      line: "> what should we work on today?",
+      sessionKey,
+      source: "history",
+      sequenceKey: 1,
+      runId: null,
+      role: "user",
+      kind: "user",
+      confirmed: true,
+      entryId: "history:user:prior",
+    });
+    const priorAssistant = createTranscriptEntryFromLine({
+      line: "win + progress + cleanup",
+      sessionKey,
+      source: "runtime-chat",
+      sequenceKey: 2,
+      runId: "run-prior",
+      role: "assistant",
+      kind: "assistant",
+      confirmed: true,
+      entryId: "run:run-prior:assistant:final",
+    });
+    const nextUser = createTranscriptEntryFromLine({
+      line: "> naw - sounds boring",
+      sessionKey,
+      source: "local-send",
+      sequenceKey: 3,
+      runId: "run-active",
+      role: "user",
+      kind: "user",
+      confirmed: false,
+      entryId: "local:user:next",
+    });
+    if (!priorUser || !priorAssistant || !nextUser) {
+      throw new Error("Expected transcript entries.");
+    }
+
+    const runningAgent: AgentState = {
+      agentId: "agent-1",
+      name: "Agent One",
+      sessionKey,
+      status: "running",
+      sessionCreated: true,
+      awaitingUserInput: false,
+      hasUnseenActivity: false,
+      outputLines: [
+        "> what should we work on today?",
+        "win + progress + cleanup",
+        "> naw - sounds boring",
+      ],
+      lastResult: "win + progress + cleanup",
+      lastDiff: null,
+      runId: "run-active",
+      runStartedAt: 10_000,
+      streamText: "",
+      thinkingTrace: null,
+      latestOverride: null,
+      latestOverrideKind: null,
+      lastAssistantMessageAt: 9_000,
+      lastActivityAt: 10_000,
+      latestPreview: "win + progress + cleanup",
+      lastUserMessage: "naw - sounds boring",
+      draft: "",
+      sessionSettingsSynced: true,
+      historyLoadedAt: null,
+      historyFetchLimit: null,
+      historyFetchedCount: null,
+      historyMaybeTruncated: false,
+      toolCallingEnabled: true,
+      showThinkingTraces: true,
+      model: "openai/gpt-5",
+      thinkingLevel: "medium",
+      avatarSeed: "seed-1",
+      avatarUrl: null,
+      transcriptEntries: [priorUser, priorAssistant, nextUser],
+      transcriptRevision: 7,
+      transcriptSequenceCounter: 4,
+    };
+
+    const commands = await runHistorySyncOperation({
+      client: {
+        call: async <T>() =>
+          ({
+            sessionKey,
+            messages: [
+              { role: "user", content: "what should we work on today?" },
+              { role: "assistant", content: "win + progress + cleanup" },
+            ],
+          }) as T,
+      },
+      agentId: "agent-1",
+      getAgent: () => runningAgent,
+      inFlightSessionKeys: new Set<string>(),
+      requestId: "req-replay-1",
+      loadedAt: 15_000,
+      defaultLimit: 200,
+      maxLimit: 5000,
+      transcriptV2Enabled: true,
+    });
+
+    const updates = commands.filter((entry) => entry.kind === "dispatchUpdateAgent");
+    const finalUpdate = updates[updates.length - 1];
+    if (!finalUpdate || finalUpdate.kind !== "dispatchUpdateAgent") {
+      throw new Error("Expected final dispatch update.");
+    }
+    const lines = finalUpdate.patch.outputLines ?? runningAgent.outputLines;
+    expect(lines.filter((line) => line === "win + progress + cleanup")).toHaveLength(1);
+    const transcriptEntries = finalUpdate.patch.transcriptEntries ?? runningAgent.transcriptEntries;
+    expect(
+      transcriptEntries.filter(
+        (entry) => entry.kind === "assistant" && entry.text === "win + progress + cleanup"
+      )
+    ).toHaveLength(1);
+  });
 });
