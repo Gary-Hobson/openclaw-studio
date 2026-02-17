@@ -47,16 +47,14 @@ describe("compileGuidedAgentCreation", () => {
 
     expect(result.validation.errors).toEqual([]);
     expect(result.agentOverrides.sandbox).toEqual({
-      mode: "all",
-      workspaceAccess: "ro",
+      mode: "off",
+      workspaceAccess: "rw",
     });
     expect(result.agentOverrides.tools?.profile).toBe("minimal");
     expect(result.agentOverrides.tools?.allow).toBeUndefined();
     expect(result.agentOverrides.tools?.alsoAllow).toContain("group:web");
+    expect(result.agentOverrides.tools?.alsoAllow).toContain("group:fs");
     expect(result.agentOverrides.tools?.deny).toContain("group:runtime");
-    expect(result.agentOverrides.tools?.deny).toContain("write");
-    expect(result.agentOverrides.tools?.deny).toContain("edit");
-    expect(result.agentOverrides.tools?.deny).toContain("apply_patch");
     expect(result.files["AGENTS.md"]).toBeUndefined();
     expect(result.files["IDENTITY.md"]).toContain("Role: Research analyst");
     expect(result.files["IDENTITY.md"]).toContain("Creature: Analyst Cartographer");
@@ -86,11 +84,9 @@ describe("compileGuidedAgentCreation", () => {
     expect(result.files["SOUL.md"]).toContain("## Core Truths");
     expect(result.files["SOUL.md"]).toContain("Small scoped changes reduce operational risk.");
     expect(result.agentOverrides.tools?.profile).toBe("coding");
+    expect(result.agentOverrides.tools?.alsoAllow).toContain("group:fs");
     expect(result.agentOverrides.tools?.alsoAllow).toContain("group:runtime");
     expect(result.agentOverrides.tools?.deny).not.toContain("group:runtime");
-    expect(result.agentOverrides.tools?.deny).toContain("write");
-    expect(result.agentOverrides.tools?.deny).toContain("edit");
-    expect(result.agentOverrides.tools?.deny).toContain("apply_patch");
     expect(result.execApprovals).toEqual({
       security: "allowlist",
       ask: "on-miss",
@@ -114,10 +110,8 @@ describe("compileGuidedAgentCreation", () => {
     expect(result.validation.errors).toEqual([]);
     expect(result.agentOverrides.tools?.profile).toBe("messaging");
     expect(result.agentOverrides.tools?.alsoAllow).toContain("group:web");
+    expect(result.agentOverrides.tools?.alsoAllow).toContain("group:fs");
     expect(result.agentOverrides.tools?.deny).toContain("group:runtime");
-    expect(result.agentOverrides.tools?.deny).toContain("write");
-    expect(result.agentOverrides.tools?.deny).toContain("edit");
-    expect(result.agentOverrides.tools?.deny).toContain("apply_patch");
     expect(result.files["AGENTS.md"]).toBeUndefined();
     expect(result.files["IDENTITY.md"]).toContain("Role: Marketing operator");
     expect(result.files["IDENTITY.md"]).toContain("Creature: Signal Operator");
@@ -142,7 +136,7 @@ describe("compileGuidedAgentCreation", () => {
     expect(result.validation.errors).toContain("Auto exec requires runtime tools to be enabled.");
   });
 
-  it("forces sandbox mode to all when compiling guided agent creation", () => {
+  it("forces sandbox mode off when compiling guided agent creation", () => {
     const draft = createDraft();
     draft.controls.allowExec = true;
     draft.controls.execAutonomy = "ask-first";
@@ -155,7 +149,7 @@ describe("compileGuidedAgentCreation", () => {
 
     expect(result.validation.errors).toEqual([]);
     expect(result.agentOverrides.sandbox).toEqual({
-      mode: "all",
+      mode: "off",
       workspaceAccess: draft.controls.workspaceAccess,
     });
   });
@@ -170,7 +164,7 @@ describe("compileGuidedAgentCreation", () => {
     expect(draft.controlLevel).toBe("autopilot");
     expect(draft.controls.toolsProfile).toBe("coding");
     expect(draft.controls.allowExec).toBe(true);
-    expect(draft.controls.sandboxMode).toBe("all");
+    expect(draft.controls.sandboxMode).toBe("off");
     expect(draft.controls.workspaceAccess).toBe("rw");
     expect(draft.controls.toolsAllow).toContain("group:web");
     expect(draft.controls.toolsAllow).toContain("group:fs");
@@ -188,7 +182,7 @@ describe("compileGuidedAgentCreation", () => {
     expect(draft.controls.allowExec).toBe(true);
     expect(draft.controls.execAutonomy).toBe("auto");
     expect(draft.controls.fileEditAutonomy).toBe("auto-edit");
-    expect(draft.controls.sandboxMode).toBe("all");
+    expect(draft.controls.sandboxMode).toBe("off");
     expect(draft.controls.workspaceAccess).toBe("rw");
   });
 

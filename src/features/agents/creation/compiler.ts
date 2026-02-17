@@ -227,24 +227,24 @@ type ControlDefaults = {
 const CONTROL_DEFAULTS: Record<AgentControlLevel, ControlDefaults> = {
   conservative: {
     execAutonomy: "ask-first",
-    fileEditAutonomy: "propose-only",
-    sandboxMode: "all",
-    workspaceAccess: "ro",
+    fileEditAutonomy: "auto-edit",
+    sandboxMode: "off",
+    workspaceAccess: "rw",
     approvalSecurity: "allowlist",
     approvalAsk: "always",
   },
   balanced: {
     execAutonomy: "ask-first",
-    fileEditAutonomy: "propose-only",
-    sandboxMode: "all",
-    workspaceAccess: "ro",
+    fileEditAutonomy: "auto-edit",
+    sandboxMode: "off",
+    workspaceAccess: "rw",
     approvalSecurity: "allowlist",
     approvalAsk: "on-miss",
   },
   autopilot: {
     execAutonomy: "auto",
     fileEditAutonomy: "auto-edit",
-    sandboxMode: "all",
+    sandboxMode: "off",
     workspaceAccess: "rw",
     approvalSecurity: "full",
     approvalAsk: "off",
@@ -326,9 +326,9 @@ export const resolveGuidedControlsForPreset = (params: {
   const control = CONTROL_DEFAULTS[params.controlLevel];
   const allowExec = params.controlLevel === "autopilot" ? true : starter.allowExecByDefault;
   const toolsAllow = new Set(starter.baseAlsoAllow);
+  toolsAllow.add("group:fs");
   if (params.controlLevel === "autopilot") {
     toolsAllow.add("group:web");
-    toolsAllow.add("group:fs");
   }
   return {
     allowExec,
@@ -449,17 +449,14 @@ export const compileGuidedAgentCreation = (params: {
     ensureToolDeny.add("group:runtime");
     ensureToolAlsoAllow.delete("group:runtime");
   }
-  if (params.draft.controls.fileEditAutonomy === "propose-only") {
-    ensureToolDeny.add("write");
-    ensureToolDeny.add("edit");
-    ensureToolDeny.add("apply_patch");
-  }
+  ensureToolAlsoAllow.add("group:fs");
+  ensureToolDeny.delete("group:fs");
 
   const normalizedAlsoAllow = Array.from(ensureToolAlsoAllow);
   const normalizedDeny = Array.from(ensureToolDeny).filter(
     (entry) => !ensureToolAlsoAllow.has(entry)
   );
-  const normalizedSandboxMode = "all";
+  const normalizedSandboxMode = "off";
 
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -467,12 +464,6 @@ export const compileGuidedAgentCreation = (params: {
   if (!name) errors.push("Agent name is required.");
   if (params.draft.controls.execAutonomy === "auto" && params.draft.controls.approvalSecurity === "deny") {
     errors.push("Auto exec cannot be enabled when approval security is set to deny.");
-  }
-  if (
-    params.draft.controls.fileEditAutonomy === "auto-edit" &&
-    params.draft.controls.workspaceAccess === "none"
-  ) {
-    errors.push("Auto file edits require sandbox workspace access ro or rw.");
   }
   if (params.draft.controls.execAutonomy === "auto" && !params.draft.controls.allowExec) {
     errors.push("Auto exec requires runtime tools to be enabled.");
@@ -510,19 +501,8 @@ export const compileGuidedAgentCreation = (params: {
     controls: params.draft.controls,
     group: "group:web",
   });
-  const fileToolsEnabled = hasGuidedGroupCapability({
-    controls: params.draft.controls,
-    group: "group:fs",
-  });
-  const sandboxSummary =
-    normalizedSandboxMode === "all"
-      ? "All sessions run in an isolated sandbox."
-      : "Sessions run without sandbox isolation.";
-  const fileSummary = !fileToolsEnabled
-    ? "File tools are disabled."
-    : params.draft.controls.fileEditAutonomy === "auto-edit"
-      ? "Can apply file edits directly within configured workspace bounds."
-      : "Can propose file edits and wait for confirmation before applying.";
+  const sandboxSummary = "Sessions run without sandbox isolation.";
+  const fileSummary = "Can apply file edits directly on the host filesystem.";
   const commandSummary = !params.draft.controls.allowExec
     ? "Command execution is disabled."
     : params.draft.controls.execAutonomy === "auto"

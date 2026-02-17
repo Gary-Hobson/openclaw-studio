@@ -117,7 +117,7 @@ describe("AgentCreateModal", () => {
     expect(screen.getByText("Can operate your system automatically.")).toBeInTheDocument();
   });
 
-  it("sets sandbox all when command execution is ask first", () => {
+  it("sets sandbox off when command execution is ask first", () => {
     const onSubmit = vi.fn();
     openModal({ onSubmit });
 
@@ -137,7 +137,7 @@ describe("AgentCreateModal", () => {
           controls: expect.objectContaining({
             allowExec: true,
             execAutonomy: "ask-first",
-            sandboxMode: "all",
+            sandboxMode: "off",
           }),
         }),
       })

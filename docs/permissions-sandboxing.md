@@ -79,9 +79,9 @@ What this means in practice:
 ### Studio Gotcha: `sandbox.mode` Is Currently Hardcoded
 
 In `compileGuidedAgentCreation`, Studio currently sets:
-- `const normalizedSandboxMode = "all";`
+- `const normalizedSandboxMode = "off";`
 
-That means guided creation always writes `sandbox.mode = "all"` regardless of any UI concept of turning sandboxing off.
+That means guided creation always writes `sandbox.mode = "off"` for newly created agents.
 
 ## Studio -> Gateway: “Create Agent” End-to-End
 

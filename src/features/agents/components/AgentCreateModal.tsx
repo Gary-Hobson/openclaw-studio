@@ -206,8 +206,8 @@ const AUTONOMY_PROFILES: Array<{
     title: "Conservative",
     description: "Acts with review required.",
     details: [
-      "No direct codebase writes",
-      "Code and files access is off by default",
+      "Can modify code and files directly",
+      "Code and files access is on by default",
       "No automatic system actions",
     ],
   },
@@ -365,12 +365,6 @@ export const AgentCreateModal = ({
     controls: guidedDraft.controls,
     group: "group:web",
   });
-  const fileToolsEnabled = hasGuidedGroupCapability({
-    controls: guidedDraft.controls,
-    group: "group:fs",
-  });
-  const fileMode: FileMode =
-    fileToolsEnabled && guidedDraft.controls.fileEditAutonomy === "auto-edit" ? "on" : "off";
   const commandMode: CommandMode = !guidedDraft.controls.allowExec
     ? "off"
     : guidedDraft.controls.execAutonomy === "auto"
@@ -404,22 +398,18 @@ export const AgentCreateModal = ({
   };
 
   const updateFileMode = (mode: FileMode) => {
+    if (mode === "off") return;
     setGuidedDraft((current) => {
       let controls = setGroupCapability({
         controls: current.controls,
         group: "group:fs",
-        enabled: mode === "on",
+        enabled: true,
       });
-      if (mode === "off") {
-        controls = { ...controls, fileEditAutonomy: "propose-only" };
-      }
-      if (mode === "on") {
-        controls = {
-          ...controls,
-          fileEditAutonomy: "auto-edit",
-          workspaceAccess: "rw",
-        };
-      }
+      controls = {
+        ...controls,
+        fileEditAutonomy: "auto-edit",
+        workspaceAccess: "rw",
+      };
       return {
         ...current,
         controls,
@@ -436,6 +426,7 @@ export const AgentCreateModal = ({
             ...current.controls,
             allowExec: false,
             execAutonomy: "ask-first",
+            sandboxMode: "off",
           },
         };
       }
@@ -448,7 +439,7 @@ export const AgentCreateModal = ({
             execAutonomy: "ask-first",
             approvalSecurity: "allowlist",
             approvalAsk: "always",
-            sandboxMode: "all",
+            sandboxMode: "off",
           },
         };
       }
@@ -460,7 +451,7 @@ export const AgentCreateModal = ({
           execAutonomy: "auto",
           approvalSecurity: "full",
           approvalAsk: "off",
-          sandboxMode: "all",
+          sandboxMode: "off",
         },
       };
     });
@@ -481,14 +472,15 @@ export const AgentCreateModal = ({
         controls = setGroupCapability({
           controls,
           group: "group:fs",
-          enabled: false,
+          enabled: true,
         });
         controls = {
           ...controls,
-          fileEditAutonomy: "propose-only",
-          workspaceAccess: controls.workspaceAccess === "none" ? "ro" : controls.workspaceAccess,
+          fileEditAutonomy: "auto-edit",
+          workspaceAccess: "rw",
           allowExec: false,
           execAutonomy: "ask-first",
+          sandboxMode: "off",
         };
         return {
           ...current,
@@ -520,6 +512,7 @@ export const AgentCreateModal = ({
           execAutonomy: "ask-first",
           approvalSecurity: "allowlist",
           approvalAsk: "always",
+          sandboxMode: "off",
         };
         return {
           ...current,
@@ -550,7 +543,7 @@ export const AgentCreateModal = ({
         execAutonomy: "auto",
         approvalSecurity: "full",
         approvalAsk: "off",
-        sandboxMode: "all",
+        sandboxMode: "off",
       };
       return {
         ...current,
@@ -736,31 +729,21 @@ export const AgentCreateModal = ({
                   <div className="grid gap-0.5">
                     <div className={labelClassName}>Code and Files</div>
                     <div className="text-[11px] text-muted-foreground">Controls codebase and file modification behavior.</div>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      <button
-                        type="button"
-                        aria-label="File changes off"
-                        className={controlOptionClassName(fileMode === "off", "neutral")}
-                        onClick={() => updateFileMode("off")}
-                      >
-                        Off
-                      </button>
+                    <div className="grid gap-2 md:grid-cols-1">
                       <button
                         type="button"
                         aria-label="File changes on"
-                        className={controlOptionClassName(fileMode === "on", "full")}
+                        className={controlOptionClassName(true, "full")}
                         onClick={() => updateFileMode("on")}
                       >
                         On
                       </button>
                     </div>
                     <div
-                      className={`min-h-4 text-[11px] ${
-                        fileMode === "on" ? "text-muted-foreground" : "text-transparent"
-                      }`}
-                      aria-hidden={fileMode !== "on"}
+                      className="min-h-4 text-[11px] text-muted-foreground"
+                      aria-hidden={false}
                     >
-                      {fileMode === "on" ? "Can modify your codebase directly." : "\u00A0"}
+                      Can modify your codebase directly.
                     </div>
                   </div>
 
