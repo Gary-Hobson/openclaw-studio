@@ -71,7 +71,7 @@ export const FleetSidebar = ({
 
   return (
     <aside
-      className="glass-panel fade-up-delay ui-panel relative flex h-full w-full min-w-72 flex-col gap-3 bg-sidebar p-3 xl:max-w-[320px] xl:border-r xl:border-sidebar-border"
+      className="glass-panel fade-up-delay ui-panel ui-depth-sidepanel relative flex h-full w-full min-w-72 flex-col gap-3 bg-sidebar p-3 xl:max-w-[320px] xl:border-r xl:border-sidebar-border"
       data-testid="fleet-sidebar"
     >
       <div className="flex items-center justify-between gap-2 px-1">
@@ -129,13 +129,13 @@ export const FleetSidebar = ({
                   className={`group relative ui-card flex w-full items-center gap-4 overflow-hidden border px-3 py-5 text-left transition-colors ${
                     selected
                       ? "ui-card-selected"
-                      : "hover:bg-surface-2/70"
+                      : "hover:bg-surface-2/45"
                   }`}
                   onClick={() => onSelectAgent(agent.agentId)}
                 >
                   <span
                     aria-hidden="true"
-                    className={`ui-card-select-indicator ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-60"}`}
+                    className={`ui-card-select-indicator ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-35"}`}
                   />
                   <AgentAvatar
                     seed={avatarSeed}

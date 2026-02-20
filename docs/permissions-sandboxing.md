@@ -312,9 +312,9 @@ Studio wiring for UX:
 
 Studio can also change permissions after an agent exists.
 
-### Settings Permissions Updates (Preset + Advanced)
+### Capabilities Permissions Updates (Preset + Advanced)
 
-Studio’s Settings sidebar permissions flow applies coordinated changes from one save action:
+Studio’s permissions flow applies coordinated changes from one save action:
 - Exec approvals policy (per-agent, persisted in exec approvals file)
 - Tool allow/deny for runtime/web/fs groups (`group:runtime`, `group:web`, `group:fs`) in agent config
 - Session exec settings (`execHost|execSecurity|execAsk`) via `sessions.patch`
@@ -325,7 +325,11 @@ Code:
 UI model:
 - Presets: `Conservative`, `Collaborative`, `Autonomous`
 - Advanced controls: `Command mode` (`Off`/`Ask`/`Auto`), `Web access` (`Off`/`On`), `File tools` (`Off`/`On`)
-- Create modal remains permission-free; permissions are configured only after creation in Settings.
+- Create modal remains permission-free; permissions are configured only after creation.
+
+Terminology note:
+- Current builds may still label this surface as `Settings`.
+- Planned IA renames this to `Capabilities` and splits `Schedule` and `Advanced` into separate surfaces.
 
 Why it matters:
 - You can have exec approvals configured but still be unable to run commands if `group:runtime` is denied.

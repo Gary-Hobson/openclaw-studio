@@ -548,7 +548,11 @@ export const AgentSettingsPanel = ({
             <div className="px-1 py-1">
               <div className="sidebar-copy flex flex-col gap-1 text-[11px] text-muted-foreground">
                 <span className="font-medium text-foreground/88">Run commands</span>
-                <div className="ui-segment mt-2 grid-cols-3" role="group" aria-label="Run commands">
+                <div
+                  className="ui-segment ui-segment-command-mode mt-2 grid-cols-3"
+                  role="group"
+                  aria-label="Run commands"
+                >
                   {(
                     [
                       { id: "off", label: "Off" },
@@ -563,7 +567,7 @@ export const AgentSettingsPanel = ({
                         type="button"
                         aria-label={`Run commands ${option.label.toLowerCase()}`}
                         aria-pressed={selected}
-                        className="ui-segment-item px-2 py-1.5 text-center font-mono"
+                        className="ui-segment-item px-3 py-2.5 text-center font-mono text-[11px] font-semibold tracking-[0.04em]"
                         data-active={selected ? "true" : "false"}
                         onClick={() =>
                           setPermissionsDraftValue((current) => ({

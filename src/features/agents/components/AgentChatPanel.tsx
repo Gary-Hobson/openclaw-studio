@@ -313,8 +313,8 @@ const UserMessageCard = memo(function UserMessageCard({
   timestampMs?: number;
 }) {
   return (
-    <div className="ui-chat-user-card w-full max-w-[70ch] self-end overflow-hidden rounded-md bg-[color:var(--chat-user-bg)]">
-      <div className="flex items-center justify-between gap-3 bg-[color:var(--chat-user-header-bg)] px-3 py-2">
+    <div className="ui-chat-user-card w-full max-w-[70ch] self-end overflow-hidden rounded-[var(--radius-small)] bg-[color:var(--chat-user-bg)]">
+      <div className="flex items-center justify-between gap-3 bg-[color:var(--chat-user-header-bg)] px-3 py-2 dark:px-3.5 dark:py-2.5">
         <div className="type-meta min-w-0 truncate font-mono text-foreground/90">
           You
         </div>
@@ -324,7 +324,7 @@ const UserMessageCard = memo(function UserMessageCard({
           </time>
         ) : null}
       </div>
-      <div className="agent-markdown type-body px-3 py-3 text-foreground">
+      <div className="agent-markdown type-body px-3 py-3 text-foreground dark:px-3.5 dark:py-3.5">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
       </div>
     </div>
@@ -400,7 +400,7 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
             </span>
           </div>
         ) : (
-          <div className="mt-2 space-y-3">
+          <div className="mt-2 space-y-3 dark:space-y-5">
             {streaming ? (
               <div
                 className="flex items-center gap-2 text-[10px] text-muted-foreground/80"
@@ -674,7 +674,7 @@ const AgentChatTranscript = memo(function AgentChatTranscript({
       <div
         ref={chatRef}
         data-testid="agent-chat-scroll"
-        className={`ui-chat-scroll h-full overflow-auto p-4 sm:p-5 ${showJumpToLatest ? "pb-20" : ""}`}
+        className={`ui-chat-scroll h-full overflow-auto p-4 dark:p-6 sm:p-5 dark:sm:p-7 ${showJumpToLatest ? "pb-20" : ""}`}
         onScroll={() => updatePinnedFromScroll()}
         onWheel={(event) => {
           event.stopPropagation();
@@ -683,7 +683,7 @@ const AgentChatTranscript = memo(function AgentChatTranscript({
           event.stopPropagation();
         }}
       >
-        <div className="relative flex flex-col gap-6 text-[14px] leading-[1.65] text-foreground">
+        <div className="relative flex flex-col gap-6 dark:gap-8 text-[14px] leading-[1.65] text-foreground">
           <div aria-hidden className={`pointer-events-none absolute ${SPINE_LEFT} top-0 bottom-0 w-px bg-border/20`} />
           {historyMaybeTruncated && isAtTop ? (
             <div className="-mx-1 flex items-center justify-between gap-3 rounded-md bg-surface-2 px-3 py-2 shadow-2xs">
@@ -812,7 +812,7 @@ const AgentChatComposer = memo(function AgentChatComposer({
         </span>
       ) : null}
       <button
-        className="ui-btn-primary ui-btn-send rounded-[7px] px-3 py-2 font-mono text-[12px] font-medium tracking-[0.02em] disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground"
+        className="ui-btn-primary ui-btn-send px-3 py-2 font-mono text-[12px] font-medium tracking-[0.02em] disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground"
         type="button"
         onClick={onSend}
         disabled={sendDisabled}

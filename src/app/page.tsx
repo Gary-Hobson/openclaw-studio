@@ -2404,7 +2404,7 @@ const AgentStudioPage = () => {
             />
           </div>
           <div
-            className={`${mobilePane === "chat" ? "flex" : "hidden"} ui-panel min-h-0 flex-1 overflow-hidden xl:flex`}
+            className={`${mobilePane === "chat" ? "flex" : "hidden"} ui-panel ui-depth-workspace min-h-0 flex-1 overflow-hidden xl:flex`}
             data-testid="focused-agent-panel"
           >
             {focusedAgent ? (
@@ -2456,7 +2456,7 @@ const AgentStudioPage = () => {
           </div>
           {brainPanelOpen ? (
             <div
-              className={`${mobilePane === "brain" ? "block" : "hidden"} sidebar-shell glass-panel ui-panel min-h-0 w-full shrink-0 overflow-hidden p-0 xl:block xl:min-w-[360px] xl:max-w-[430px]`}
+              className={`${mobilePane === "brain" ? "block" : "hidden"} sidebar-shell glass-panel ui-panel ui-depth-sidepanel min-h-0 w-full shrink-0 overflow-hidden p-0 xl:block xl:min-w-[360px] xl:max-w-[430px]`}
             >
               <AgentBrainPanel
                 client={client}
@@ -2471,7 +2471,7 @@ const AgentStudioPage = () => {
           ) : null}
           {settingsAgent ? (
             <div
-              className={`${mobilePane === "settings" ? "block" : "hidden"} sidebar-shell glass-panel ui-panel min-h-0 w-full shrink-0 overflow-hidden p-0 xl:block xl:min-w-[360px] xl:max-w-[430px]`}
+              className={`${mobilePane === "settings" ? "block" : "hidden"} sidebar-shell glass-panel ui-panel ui-depth-sidepanel min-h-0 w-full shrink-0 overflow-hidden p-0 xl:block xl:min-w-[360px] xl:max-w-[430px]`}
             >
               <AgentSettingsPanel
                 key={settingsAgent.agentId}
