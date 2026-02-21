@@ -1,58 +1,57 @@
 # Studio UI Guide
 
-This doc covers Studio UI behavior and near-term UX direction.
+This doc describes the current Studio IA and behavior.
 
-## Current Behavior (Today)
+## Agent Surfaces
 
-### Agent creation workflow
-- Click **New Agent** in the fleet sidebar.
-- Enter an agent name and avatar, then create.
-- The create modal does not include permission controls.
-- After create succeeds, Studio currently opens **Settings** for the new agent.
+### Chat (default)
+- Selecting an agent opens chat as the primary workspace.
+- Chat header controls include:
+  - New session
+  - Personality shortcut
+  - Settings shortcut
+- New session resets the current agent session and clears visible transcript state in Studio.
 
-### Cron jobs
-- Open an agent and go to **Settings -> Cron jobs**.
-- If no jobs exist, use the empty-state **Create** button.
-- If jobs already exist, use the header **Create** button.
-- The modal is agent-scoped and walks through template selection, task text, schedule, and review.
-- Submitting creates the job via gateway `cron.add` and refreshes that same agent's cron list.
+### Settings Sidebar
+- The settings cog opens one sidebar with four tabs:
+  1. Personality
+  2. Capabilities
+  3. Automations
+  4. Advanced
 
-### Exec approvals in chat
-- When a run requires exec approval, chat shows an **Exec approval required** card with command preview, host/cwd, and expiration.
-- Resolve directly in chat with:
-  - **Allow once**
-  - **Always allow**
-  - **Deny**
-- The fleet row displays **Needs approval** while approvals are pending for that agent.
+## Personality
+- Personality is the first tab when opening settings.
+- Rename agent lives in Personality.
+- Personality file tabs are intentionally limited to:
+  - Personality (`SOUL.md`)
+  - Instructions (`AGENTS.md`)
+  - About You (`USER.md`)
+  - Identity (`IDENTITY.md`)
+- Underlying persistence still saves the full gateway-backed agent file set.
 
-## Direction (Planned)
+## Capabilities
+- Capabilities exposes direct controls (no role preset labels):
+  - Run commands: Off / Ask / Auto
+  - Web access: Off / On
+  - File tools: Off / On
+- Skills and Browser automation are visible as coming-soon toggles.
 
-Studio is moving to a capability-first IA for non-technical users.
+## Automations
+- User-facing language is schedules/automations (not cron-first terminology).
+- Schedule creation uses template -> task -> schedule -> review flow.
+- Heartbeats are represented in this tab as coming soon.
 
-### Per-agent surfaces
-1. `Chat` (default)
-2. `Personality`
-3. `Capabilities`
-4. `Schedule`
-5. `Advanced`
+## Advanced
+- Advanced contains:
+  - Display toggles (Show tool calls, Show thinking)
+  - Open Full Control UI
+  - Delete agent (danger zone)
+- Session controls are not in Advanced.
 
-### Naming and scope changes
-- `Brain` is being renamed to `Personality`.
-- `Settings` is being split into `Capabilities`, `Schedule`, and `Advanced`.
-- `Delete agent` moves to `Advanced` danger zone only.
-- `New session` moves to a chat-adjacent header action.
-- Personality editor should use friendly labels over raw filenames:
-  - `Instructions` for `AGENTS.md`
-  - `About You` for `USER.md`
-  - `Personality` context for `SOUL.md` + `IDENTITY.md`
-
-### Capability-first model (planned)
-- Commands: `Off` / `Ask before running` / `Run automatically`
-- Web research: `Off` / `On`
-- Browser automation: `Off` / `On`
-- Files: `Off` / `Read-only` / `Read & write`
-- Automations: managed in `Schedule`
-- Integrations: skill enable/disable and API key setup
-
-### Defaults direction
-- New agents should move toward a collaborative/safe default envelope rather than autonomous-by-default behavior.
+## Agent Creation Defaults
+- Create modal captures only name/avatar.
+- After creation, Studio applies safe defaults:
+  - Commands: Ask
+  - Web access: Off
+  - File tools: Off
+- Post-create UX keeps chat as primary and auto-opens Capabilities sidebar for onboarding.

@@ -44,13 +44,11 @@ describe("AgentSettingsPanel header", () => {
     cleanup();
   });
 
-  it("uses inspect header style with section label and agent title", () => {
+  it("uses inspect header style with agent title", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -64,7 +62,7 @@ describe("AgentSettingsPanel header", () => {
       })
     );
 
-    expect(screen.getByText("Agent settings")).toBeInTheDocument();
+    expect(screen.queryByText("Capabilities")).not.toBeInTheDocument();
     expect(screen.getByText("Web Researcher")).toBeInTheDocument();
     expect(screen.getByLabelText("Close panel")).toBeInTheDocument();
   });

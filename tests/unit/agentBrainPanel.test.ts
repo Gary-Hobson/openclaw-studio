@@ -107,15 +107,23 @@ describe("AgentBrainPanel", () => {
         client,
         agents,
         selectedAgentId: "agent-1",
+        onRename: vi.fn(async () => true),
         onClose: vi.fn(),
       })
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Agents" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Instructions" })).toBeInTheDocument();
     });
 
-    expect(screen.getByText("alpha agents")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Personality" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "About You" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Tools" })).not.toBeInTheDocument();
+    expect(screen.getByText("Be useful.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Instructions" }));
+    await waitFor(() => {
+      expect(screen.getByText("alpha agents")).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByRole("button", { name: "Identity" }));
     await waitFor(() => {
       expect(screen.getByText("Name: Alpha")).toBeInTheDocument();
@@ -131,6 +139,7 @@ describe("AgentBrainPanel", () => {
         client,
         agents,
         selectedAgentId: "",
+        onRename: vi.fn(async () => true),
         onClose: vi.fn(),
       })
     );
@@ -150,6 +159,7 @@ describe("AgentBrainPanel", () => {
         client,
         agents,
         selectedAgentId: "agent-1",
+        onRename: vi.fn(async () => true),
         onClose,
       })
     );
@@ -159,14 +169,21 @@ describe("AgentBrainPanel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Identity" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    const textarea = await screen.findByRole("textbox");
+    const textarea = await waitFor(() => {
+      const panel = screen.getByTestId("agent-personality-files");
+      const element = panel.querySelector("textarea");
+      if (!element) {
+        throw new Error("Personality editor textarea not found.");
+      }
+      return element;
+    });
     fireEvent.change(textarea, {
       target: {
         value:
           "# IDENTITY.md - Who Am I?\n\n- Name: Alpha Prime\n- Creature: droid\n- Vibe: calm\n- Emoji: 🤖\n",
       },
     });
-    fireEvent.click(screen.getByTestId("agent-brain-close"));
+    fireEvent.click(screen.getByTestId("agent-personality-close"));
 
     await waitFor(() => {
       expect(onClose).toHaveBeenCalledTimes(1);
@@ -186,5 +203,30 @@ describe("AgentBrainPanel", () => {
     expect(
       String((identityWrite?.params as Record<string, unknown>).content ?? "")
     ).toContain("- Name: Alpha Prime");
+  });
+
+  it("renames_agent_from_personality_panel", async () => {
+    const { client } = createMockClient();
+    const agents = [createAgent("agent-1", "Alpha", "session-1")];
+    const onRename = vi.fn(async () => true);
+
+    render(
+      createElement(AgentBrainPanel, {
+        client,
+        agents,
+        selectedAgentId: "agent-1",
+        onRename,
+        onClose: vi.fn(),
+      })
+    );
+
+    fireEvent.change(screen.getByLabelText("Agent name"), {
+      target: { value: "  Alpha Prime  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Update Name" }));
+
+    await waitFor(() => {
+      expect(onRename).toHaveBeenCalledWith("Alpha Prime");
+    });
   });
 });

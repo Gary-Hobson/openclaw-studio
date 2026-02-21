@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, CalendarDays, ListChecks, Play, Sun, Trash2, X } from "lucide-react";
+import { AlertTriangle, Bell, CalendarDays, ExternalLink, ListChecks, Play, Sun, Trash2, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -9,7 +9,6 @@ import type { AgentState } from "@/features/agents/state/store";
 import type { CronCreateDraft, CronCreateTemplateId } from "@/lib/cron/createPayloadBuilder";
 import { formatCronPayload, formatCronSchedule, type CronJobSummary } from "@/lib/cron/types";
 import type { GatewayClient } from "@/lib/gateway/GatewayClient";
-import type { AgentHeartbeatSummary } from "@/lib/gateway/agentConfig";
 import { readGatewayAgentFile, writeGatewayAgentFile } from "@/lib/gateway/agentFiles";
 import {
   resolveExecutionRoleFromAgent,
@@ -20,9 +19,11 @@ import {
   AGENT_FILE_META,
   AGENT_FILE_NAMES,
   AGENT_FILE_PLACEHOLDERS,
+  PERSONALITY_FILE_LABELS,
+  PERSONALITY_FILE_NAMES,
+  type PersonalityFileName,
   createAgentFilesState,
   isAgentFileName,
-  type AgentFileName,
 } from "@/lib/agents/agentFiles";
 
 const AgentInspectHeader = ({
@@ -40,7 +41,7 @@ const AgentInspectHeader = ({
 }) => {
   const hasLabel = label.trim().length > 0;
   return (
-    <div className="flex items-center justify-between pl-4 pr-2 py-4">
+    <div className="flex items-center justify-between pl-4 pr-2 pb-3 pt-2">
       <div>
         {hasLabel ? (
           <div className="font-mono text-[9px] font-medium tracking-[0.04em] text-muted-foreground/58">
@@ -73,11 +74,10 @@ const AgentInspectHeader = ({
 
 type AgentSettingsPanelProps = {
   agent: AgentState;
+  mode?: "capabilities" | "automations" | "advanced";
   onClose: () => void;
-  onRename: (value: string) => Promise<boolean>;
   permissionsDraft?: AgentPermissionsDraft;
   onUpdateAgentPermissions?: (draft: AgentPermissionsDraft) => Promise<void> | void;
-  onNewSession: () => Promise<void> | void;
   onDelete: () => void;
   canDelete?: boolean;
   onToolCallingToggle: (enabled: boolean) => void;
@@ -91,23 +91,8 @@ type AgentSettingsPanelProps = {
   onDeleteCronJob: (jobId: string) => Promise<void> | void;
   cronCreateBusy?: boolean;
   onCreateCronJob?: (draft: CronCreateDraft) => Promise<void> | void;
-  heartbeats?: AgentHeartbeatSummary[];
-  heartbeatLoading?: boolean;
-  heartbeatError?: string | null;
-  heartbeatRunBusyId?: string | null;
-  heartbeatDeleteBusyId?: string | null;
-  onRunHeartbeat?: (heartbeatId: string) => Promise<void> | void;
-  onDeleteHeartbeat?: (heartbeatId: string) => Promise<void> | void;
+  controlUiUrl?: string | null;
 };
-
-const formatHeartbeatSchedule = (heartbeat: AgentHeartbeatSummary) =>
-  `Every ${heartbeat.heartbeat.every}`;
-
-const formatHeartbeatTarget = (heartbeat: AgentHeartbeatSummary) =>
-  `Target: ${heartbeat.heartbeat.target}`;
-
-const formatHeartbeatSource = (heartbeat: AgentHeartbeatSummary) =>
-  heartbeat.source === "override" ? "Override" : "Inherited";
 
 const formatCronStateLine = (job: CronJobSummary): string | null => {
   if (typeof job.state.runningAtMs === "number" && Number.isFinite(job.state.runningAtMs)) {
@@ -172,6 +157,13 @@ const CRON_TEMPLATE_OPTIONS: CronTemplateOption[] = [
     description: "Start from a blank flow and choose each setting.",
     icon: ListChecks,
   },
+];
+
+const TIMED_AUTOMATION_STEP_META: Array<{ title: string; indicator: string }> = [
+  { title: "Choose type", indicator: "Type" },
+  { title: "Define function", indicator: "Function" },
+  { title: "Set timing", indicator: "Timing" },
+  { title: "Review and create", indicator: "Review" },
 ];
 
 const resolveLocalTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -259,11 +251,10 @@ const applyTemplateDefaults = (templateId: CronCreateTemplateId, current: CronCr
 
 export const AgentSettingsPanel = ({
   agent,
+  mode = "capabilities",
   onClose,
-  onRename,
   permissionsDraft,
   onUpdateAgentPermissions = () => {},
-  onNewSession,
   onDelete,
   canDelete = true,
   onToolCallingToggle,
@@ -277,18 +268,8 @@ export const AgentSettingsPanel = ({
   onDeleteCronJob,
   cronCreateBusy = false,
   onCreateCronJob = () => {},
-  heartbeats = [],
-  heartbeatLoading = false,
-  heartbeatError = null,
-  heartbeatRunBusyId = null,
-  heartbeatDeleteBusyId = null,
-  onRunHeartbeat = () => {},
-  onDeleteHeartbeat = () => {},
+  controlUiUrl = null,
 }: AgentSettingsPanelProps) => {
-  const [nameDraft, setNameDraft] = useState(agent.name);
-  const [renameSaving, setRenameSaving] = useState(false);
-  const [renameError, setRenameError] = useState<string | null>(null);
-  const [sessionBusy, setSessionBusy] = useState(false);
   const [permissionsDraftValue, setPermissionsDraftValue] = useState<AgentPermissionsDraft>(
     permissionsDraft ?? resolvePresetDefaultsForRole(resolveExecutionRoleFromAgent(agent))
   );
@@ -303,11 +284,6 @@ export const AgentSettingsPanel = ({
   const [cronCreateStep, setCronCreateStep] = useState(0);
   const [cronCreateError, setCronCreateError] = useState<string | null>(null);
   const [cronDraft, setCronDraft] = useState<CronCreateDraft>(createInitialCronDraft);
-
-  useEffect(() => {
-    setNameDraft(agent.name);
-    setRenameError(null);
-  }, [agent.agentId, agent.name]);
 
   const resolvedExecutionRole = useMemo(() => resolveExecutionRoleFromAgent(agent), [agent]);
   const resolvedPermissionsDraft = useMemo(
@@ -328,39 +304,6 @@ export const AgentSettingsPanel = ({
     setPermissionsSaveError(null);
     setPermissionsSaving(false);
   }, [agent.agentId, resolvedExecutionRole, resolvedPermissionsDraft]);
-
-  const handleRename = async () => {
-    const next = nameDraft.trim();
-    if (!next) {
-      setRenameError("Agent name is required.");
-      return;
-    }
-    if (next === agent.name) {
-      setRenameError(null);
-      return;
-    }
-    setRenameSaving(true);
-    setRenameError(null);
-    try {
-      const ok = await onRename(next);
-      if (!ok) {
-        setRenameError("Failed to rename agent.");
-        return;
-      }
-      setNameDraft(next);
-    } finally {
-      setRenameSaving(false);
-    }
-  };
-
-  const handleNewSession = async () => {
-    setSessionBusy(true);
-    try {
-      await onNewSession();
-    } finally {
-      setSessionBusy(false);
-    }
-  };
 
   const runPermissionsSave = useCallback(async (draft: AgentPermissionsDraft) => {
     if (permissionsSaving) return;
@@ -470,7 +413,7 @@ export const AgentSettingsPanel = ({
       await onCreateCronJob(payload);
       closeCronCreate();
     } catch (err) {
-      setCronCreateError(err instanceof Error ? err.message : "Failed to create cron job.");
+      setCronCreateError(err instanceof Error ? err.message : "Failed to create automation.");
     }
   };
 
@@ -492,6 +435,12 @@ export const AgentSettingsPanel = ({
     }
   };
 
+  const panelLabel = mode === "advanced" ? "Advanced" : "";
+  const canOpenControlUi = typeof controlUiUrl === "string" && controlUiUrl.trim().length > 0;
+  const timedAutomationStepMeta =
+    TIMED_AUTOMATION_STEP_META[cronCreateStep] ??
+    TIMED_AUTOMATION_STEP_META[TIMED_AUTOMATION_STEP_META.length - 1];
+
   return (
     <div
       className="agent-inspect-panel"
@@ -499,182 +448,168 @@ export const AgentSettingsPanel = ({
       style={{ position: "relative", left: "auto", top: "auto", width: "100%", height: "100%" }}
     >
       <AgentInspectHeader
-        label="Agent settings"
+        label={panelLabel}
         title={agent.name}
         onClose={onClose}
         closeTestId="agent-settings-close"
       />
 
       <div className="flex flex-col gap-0 px-5 pb-5">
-        <section
-          className="sidebar-section"
-          data-testid="agent-settings-identity"
-        >
-          <label className="sidebar-copy mt-3 flex flex-col gap-2 text-[11px] text-muted-foreground">
-            <span className="font-medium text-foreground/88">Name</span>
-            <input
-              aria-label="Agent name"
-              className="sidebar-input h-10 rounded-md px-3 text-xs font-semibold text-foreground outline-none"
-              value={nameDraft}
-              disabled={renameSaving}
-              onChange={(event) => setNameDraft(event.target.value)}
-            />
-          </label>
-          {renameError ? (
-            <div className="ui-alert-danger mt-3 rounded-md px-3 py-2 text-xs">
-              {renameError}
-            </div>
-          ) : null}
-          <div className="mt-2">
-            <button
-              className="sidebar-btn-utility w-full px-4 py-2 font-mono text-[10px] font-semibold tracking-[0.06em] disabled:cursor-not-allowed disabled:text-muted-foreground/55"
-              type="button"
-              onClick={() => {
-                void handleRename();
-              }}
-              disabled={renameSaving}
+        {mode === "capabilities" ? (
+          <>
+            <section
+              className="sidebar-section"
+              data-testid="agent-settings-permissions"
             >
-              {renameSaving ? "Saving..." : "Update Name"}
-            </button>
-          </div>
-        </section>
-
-        <section
-          className="sidebar-section"
-          data-testid="agent-settings-permissions"
-        >
-          <h3 className="sidebar-section-title">Permissions</h3>
-          <div className="mt-4 flex flex-col gap-8">
-            <div className="px-1 py-1">
-              <div className="sidebar-copy flex flex-col gap-1 text-[11px] text-muted-foreground">
-                <span className="font-medium text-foreground/88">Run commands</span>
-                <div
-                  className="ui-segment ui-segment-command-mode mt-2 grid-cols-3"
-                  role="group"
-                  aria-label="Run commands"
-                >
-                  {(
-                    [
-                      { id: "off", label: "Off" },
-                      { id: "ask", label: "Ask" },
-                      { id: "auto", label: "Auto" },
-                    ] as const
-                  ).map((option) => {
-                    const selected = permissionsDraftValue.commandMode === option.id;
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        aria-label={`Run commands ${option.label.toLowerCase()}`}
-                        aria-pressed={selected}
-                        className="ui-segment-item px-3 py-2.5 text-center font-mono text-[11px] font-semibold tracking-[0.04em]"
-                        data-active={selected ? "true" : "false"}
-                        onClick={() =>
-                          setPermissionsDraftValue((current) => ({
-                            ...current,
-                            commandMode: option.id,
-                          }))
-                        }
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
+              <div className="mt-2 flex flex-col gap-8">
+                <div className="px-1 py-1">
+                  <div className="sidebar-copy flex flex-col gap-1 text-[11px] text-muted-foreground">
+                    <span className="font-medium text-foreground/88">Run commands</span>
+                    <div
+                      className="ui-segment ui-segment-command-mode mt-2 grid-cols-3"
+                      role="group"
+                      aria-label="Run commands"
+                    >
+                      {(
+                        [
+                          { id: "off", label: "Off" },
+                          { id: "ask", label: "Ask" },
+                          { id: "auto", label: "Auto" },
+                        ] as const
+                      ).map((option) => {
+                        const selected = permissionsDraftValue.commandMode === option.id;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            aria-label={`Run commands ${option.label.toLowerCase()}`}
+                            aria-pressed={selected}
+                            className="ui-segment-item px-3 py-2.5 text-center font-mono text-[11px] font-semibold tracking-[0.04em]"
+                            data-active={selected ? "true" : "false"}
+                            onClick={() =>
+                              setPermissionsDraftValue((current) => ({
+                                ...current,
+                                commandMode: option.id,
+                              }))
+                            }
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+                <div className="ui-settings-row flex min-h-[68px] items-center justify-between gap-6 px-4 py-3">
+                  <div className="sidebar-copy flex flex-col">
+                    <span className="text-[11px] font-medium text-foreground/88">Web access</span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-label="Web access"
+                    aria-checked={permissionsDraftValue.webAccess}
+                    className={`ui-switch self-center ${permissionsDraftValue.webAccess ? "ui-switch--on" : ""}`}
+                    onClick={() =>
+                      setPermissionsDraftValue((current) => ({
+                        ...current,
+                        webAccess: !current.webAccess,
+                      }))
+                    }
+                  >
+                    <span className="ui-switch-thumb" />
+                  </button>
+                </div>
+                <div className="ui-settings-row flex min-h-[68px] items-center justify-between gap-6 px-4 py-3">
+                  <div className="sidebar-copy flex flex-col">
+                    <span className="text-[11px] font-medium text-foreground/88">File tools</span>
+                    <span className="text-[10px] text-muted-foreground/70">
+                      Lets this agent read and edit files in its workspace.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-label="File tools"
+                    aria-checked={permissionsDraftValue.fileTools}
+                    className={`ui-switch self-center ${permissionsDraftValue.fileTools ? "ui-switch--on" : ""}`}
+                    onClick={() =>
+                      setPermissionsDraftValue((current) => ({
+                        ...current,
+                        fileTools: !current.fileTools,
+                      }))
+                    }
+                  >
+                    <span className="ui-switch-thumb" />
+                  </button>
+                </div>
+                <div className="ui-settings-row flex min-h-[68px] items-center justify-between gap-6 px-4 py-3">
+                  <div className="sidebar-copy flex flex-col">
+                    <span className="text-[11px] font-medium text-foreground/88">Skills</span>
+                    <span className="text-[10px] text-muted-foreground/70">Coming soon</span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-label="Skills"
+                    aria-checked="false"
+                    className="ui-switch self-center"
+                    disabled
+                  >
+                    <span className="ui-switch-thumb" />
+                  </button>
+                </div>
+                <div className="ui-settings-row flex min-h-[68px] items-center justify-between gap-6 px-4 py-3">
+                  <div className="sidebar-copy flex flex-col">
+                    <span className="text-[11px] font-medium text-foreground/88">Browser automation</span>
+                    <span className="text-[10px] text-muted-foreground/70">Coming soon</span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-label="Browser automation"
+                    aria-checked="false"
+                    className="ui-switch self-center"
+                    disabled
+                  >
+                    <span className="ui-switch-thumb" />
+                  </button>
                 </div>
               </div>
-            </div>
-            <div className="ui-settings-row flex min-h-[68px] items-center justify-between gap-6 px-4 py-3">
-              <div className="sidebar-copy flex flex-col">
-                <span className="text-[11px] font-medium text-foreground/88">Web access</span>
+              <div className="sidebar-copy mt-3 text-[11px] text-muted-foreground">
+                {permissionsSaveState === "saving" ? "Saving..." : null}
+                {permissionsSaveState === "saved" ? "Saved." : null}
+                {permissionsSaveState === "error" && permissionsSaveError ? (
+                  <span>
+                    Couldn&apos;t save. {permissionsSaveError}{" "}
+                    <button
+                      type="button"
+                      className="underline underline-offset-2"
+                      onClick={() => {
+                        void runPermissionsSave(permissionsDraftValue);
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </span>
+                ) : null}
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-label="Web access"
-                aria-checked={permissionsDraftValue.webAccess}
-                className={`ui-switch self-center ${permissionsDraftValue.webAccess ? "ui-switch--on" : ""}`}
-                onClick={() =>
-                  setPermissionsDraftValue((current) => ({
-                    ...current,
-                    webAccess: !current.webAccess,
-                  }))
-                }
-              >
-                <span className="ui-switch-thumb" />
-              </button>
-            </div>
-            <div className="ui-settings-row flex min-h-[68px] items-center justify-between gap-6 px-4 py-3">
-              <div className="sidebar-copy flex flex-col">
-                <span className="text-[11px] font-medium text-foreground/88">File tools</span>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-label="File tools"
-                aria-checked={permissionsDraftValue.fileTools}
-                className={`ui-switch self-center ${permissionsDraftValue.fileTools ? "ui-switch--on" : ""}`}
-                onClick={() =>
-                  setPermissionsDraftValue((current) => ({
-                    ...current,
-                    fileTools: !current.fileTools,
-                  }))
-                }
-              >
-                <span className="ui-switch-thumb" />
-              </button>
-            </div>
-          </div>
-          <div className="sidebar-copy mt-3 text-[11px] text-muted-foreground">
-            {permissionsSaveState === "saving" ? "Saving..." : null}
-            {permissionsSaveState === "saved" ? "Saved." : null}
-            {permissionsSaveState === "error" && permissionsSaveError ? (
-              <span>
-                Couldn&apos;t save. {permissionsSaveError}{" "}
-                <button
-                  type="button"
-                  className="underline underline-offset-2"
-                  onClick={() => {
-                    void runPermissionsSave(permissionsDraftValue);
-                  }}
-                >
-                  Retry
-                </button>
-              </span>
-            ) : null}
-          </div>
-          {permissionsSaveState === "error" && !permissionsSaveError ? (
-            <div className="ui-alert-danger mt-3 rounded-md px-3 py-2 text-xs">
-              Couldn&apos;t save permissions.
-            </div>
-          ) : null}
-        </section>
+              {permissionsSaveState === "error" && !permissionsSaveError ? (
+                <div className="ui-alert-danger mt-3 rounded-md px-3 py-2 text-xs">
+                  Couldn&apos;t save permissions.
+                </div>
+              ) : null}
+            </section>
+          </>
+        ) : null}
 
-        <section
-          className="sidebar-section"
-          data-testid="agent-settings-session"
-        >
-          <h3 className="sidebar-section-title">Session</h3>
-          <div className="sidebar-copy mt-3 text-[11px] text-muted-foreground/72">
-            Starts a new session and clears the visible transcript in Studio.
-          </div>
-          <button
-            className="sidebar-btn-ghost mt-3 min-h-10 w-full px-3 py-2.5 font-mono text-[10px] font-semibold tracking-[0.06em] disabled:cursor-not-allowed disabled:opacity-70"
-            type="button"
-            onClick={() => {
-              void handleNewSession();
-            }}
-            disabled={sessionBusy}
+        {mode === "automations" ? (
+          <section
+            className="sidebar-section"
+            data-testid="agent-settings-cron"
           >
-            {sessionBusy ? "Starting..." : "New session"}
-          </button>
-        </section>
-
-        <section
-          className="sidebar-section"
-          data-testid="agent-settings-cron"
-        >
           <div className="flex items-center justify-between gap-2">
-            <h3 className="sidebar-section-title">Cron jobs</h3>
+            <h3 className="sidebar-section-title">Timed automations</h3>
             {!cronLoading && !cronError && cronJobs.length > 0 ? (
               <button
                 className="sidebar-btn-ghost px-2.5 py-1.5 font-mono text-[10px] font-semibold tracking-[0.06em] disabled:cursor-not-allowed disabled:opacity-60"
@@ -686,7 +621,7 @@ export const AgentSettingsPanel = ({
             ) : null}
           </div>
           {cronLoading ? (
-            <div className="mt-3 text-[11px] text-muted-foreground">Loading cron jobs...</div>
+            <div className="mt-3 text-[11px] text-muted-foreground">Loading timed automations...</div>
           ) : null}
           {!cronLoading && cronError ? (
             <div className="ui-alert-danger mt-3 rounded-md px-3 py-2 text-xs">
@@ -701,7 +636,7 @@ export const AgentSettingsPanel = ({
                 data-testid="cron-empty-icon"
               />
               <div className="sidebar-copy text-[11px] text-muted-foreground/82">
-                No cron jobs for this agent.
+                No timed automations for this agent.
               </div>
               <button
                 className="sidebar-btn-primary mt-2 w-auto min-w-[116px] self-center px-4 py-2 font-mono text-[10px] font-semibold tracking-[0.06em] disabled:cursor-not-allowed disabled:opacity-60"
@@ -740,7 +675,7 @@ export const AgentSettingsPanel = ({
                       </div>
                       <div className="mt-1 text-[11px] text-muted-foreground">
                         <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                          Schedule
+                      Frequency
                         </span>
                         <div className="break-words">{scheduleText}</div>
                       </div>
@@ -785,7 +720,7 @@ export const AgentSettingsPanel = ({
                       <button
                         className="ui-btn-icon h-7 w-7 disabled:cursor-not-allowed disabled:opacity-60"
                         type="button"
-                        aria-label={`Run cron job ${job.name} now`}
+                        aria-label={`Run timed automation ${job.name} now`}
                         onClick={() => {
                           void onRunCronJob(job.id);
                         }}
@@ -796,7 +731,7 @@ export const AgentSettingsPanel = ({
                       <button
                         className="ui-btn-icon ui-btn-icon-danger h-7 w-7 bg-transparent disabled:cursor-not-allowed disabled:opacity-60"
                         type="button"
-                        aria-label={`Delete cron job ${job.name}`}
+                        aria-label={`Delete timed automation ${job.name}`}
                         onClick={() => {
                           void onDeleteCronJob(job.id);
                         }}
@@ -810,88 +745,25 @@ export const AgentSettingsPanel = ({
               })}
             </div>
           ) : null}
-        </section>
-
-        <section
-          className="sidebar-section"
-          data-testid="agent-settings-heartbeat"
-        >
-          <h3 className="sidebar-section-title">Heartbeats</h3>
-          {heartbeatLoading ? (
-            <div className="mt-3 text-[11px] text-muted-foreground">Loading heartbeats...</div>
-          ) : null}
-          {!heartbeatLoading && heartbeatError ? (
-            <div className="ui-alert-danger mt-3 rounded-md px-3 py-2 text-xs">
-              {heartbeatError}
-            </div>
-          ) : null}
-          {!heartbeatLoading && !heartbeatError && heartbeats.length === 0 ? (
+          <section
+            className="sidebar-section"
+            data-testid="agent-settings-heartbeat-coming-soon"
+          >
+            <h3 className="sidebar-section-title">Heartbeats</h3>
             <div className="mt-3 text-[11px] text-muted-foreground">
-              No heartbeats for this agent.
+              Heartbeat automation controls are coming soon.
             </div>
-          ) : null}
-          {!heartbeatLoading && !heartbeatError && heartbeats.length > 0 ? (
-            <div className="mt-3 flex flex-col gap-3">
-              {heartbeats.map((heartbeat) => {
-                const runBusy = heartbeatRunBusyId === heartbeat.id;
-                const deleteBusy = heartbeatDeleteBusyId === heartbeat.id;
-                const busy = runBusy || deleteBusy;
-                const deleteAllowed = heartbeat.source === "override";
-                return (
-                  <div
-                    key={heartbeat.id}
-                    className="group/heartbeat ui-card flex items-start justify-between gap-2 px-4 py-3"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground">
-                        {heartbeat.agentId}
-                      </div>
-                      <div className="truncate text-[11px] text-muted-foreground">
-                        {formatHeartbeatSchedule(heartbeat)}
-                      </div>
-                      <div className="truncate text-[11px] text-muted-foreground">
-                        {formatHeartbeatTarget(heartbeat)}
-                      </div>
-                      <div className="truncate text-[11px] text-muted-foreground">
-                        {formatHeartbeatSource(heartbeat)}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 opacity-0 transition group-focus-within/heartbeat:opacity-100 group-hover/heartbeat:opacity-100">
-                      <button
-                        className="ui-btn-icon h-7 w-7 disabled:cursor-not-allowed disabled:opacity-60"
-                        type="button"
-                        aria-label={`Run heartbeat for ${heartbeat.agentId} now`}
-                        onClick={() => {
-                          void onRunHeartbeat(heartbeat.id);
-                        }}
-                        disabled={busy}
-                      >
-                        <Play className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        className="ui-btn-icon ui-btn-icon-danger h-7 w-7 bg-transparent disabled:cursor-not-allowed disabled:opacity-60"
-                        type="button"
-                        aria-label={`Delete heartbeat for ${heartbeat.agentId}`}
-                        onClick={() => {
-                          void onDeleteHeartbeat(heartbeat.id);
-                        }}
-                        disabled={busy || !deleteAllowed}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : null}
-        </section>
+          </section>
+          </section>
+        ) : null}
 
-        <section
-          className="sidebar-section"
-          data-testid="agent-settings-display"
-        >
-          <h3 className="sidebar-section-title">Display</h3>
+        {mode === "advanced" ? (
+          <>
+            <section
+              className="sidebar-section"
+              data-testid="agent-settings-display"
+            >
+              <h3 className="sidebar-section-title">Display</h3>
           <div className="mt-3 grid gap-6 md:grid-cols-2">
             <div className="ui-settings-row flex min-h-[68px] items-center justify-between gap-6 px-4 py-3">
               <div className="sidebar-copy flex flex-col">
@@ -924,37 +796,78 @@ export const AgentSettingsPanel = ({
               </button>
             </div>
           </div>
-        </section>
+            </section>
 
-        {canDelete ? (
-          <section className="sidebar-section mt-8">
-            <h3 className="sidebar-section-title ui-text-danger">Delete agent</h3>
-            <div className="mt-3 text-[11px] text-muted-foreground/68">
-              Removes the agent from the gateway config and deletes its cron jobs.
-            </div>
-            <button
-              className="sidebar-btn-ghost ui-btn-danger mt-3 w-full px-3 py-2 font-mono text-[10px] font-semibold tracking-[0.06em]"
-              type="button"
-              onClick={onDelete}
-            >
-              Delete agent
-            </button>
-          </section>
-        ) : (
-          <section className="sidebar-section mt-8">
-            <h3 className="sidebar-section-title">System agent</h3>
-            <div className="mt-3 text-[11px] text-muted-foreground">
-              The main agent is reserved and cannot be deleted.
-            </div>
-          </section>
-        )}
+            <section className="sidebar-section mt-8" data-testid="agent-settings-control-ui">
+              <h3 className="sidebar-section-title ui-text-danger">Danger Zone</h3>
+              <div className="ui-alert-danger mt-3 rounded-md px-3 py-3 text-[11px]">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <div className="space-y-1">
+                    <div className="font-medium">Advanced users only.</div>
+                    <div>Open the full OpenClaw Control UI outside Studio.</div>
+                    <div>Changes there can break agent behavior or put Studio out of sync.</div>
+                  </div>
+                </div>
+              </div>
+              {canOpenControlUi ? (
+                <a
+                  className="sidebar-btn-primary ui-btn-danger mt-3 flex w-full items-center justify-center gap-1.5 px-3 py-2.5 text-center font-mono text-[10px] font-semibold tracking-[0.06em]"
+                  href={controlUiUrl ?? undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open Full Control UI
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                </a>
+              ) : (
+                <>
+                  <button
+                    className="sidebar-btn-primary ui-btn-danger mt-3 w-full px-3 py-2.5 font-mono text-[10px] font-semibold tracking-[0.06em] disabled:cursor-not-allowed disabled:opacity-65"
+                    type="button"
+                    disabled
+                  >
+                    Open Full Control UI
+                  </button>
+                  <div className="mt-2 text-[10px] text-muted-foreground/70">
+                    Control UI link unavailable for this gateway.
+                  </div>
+                </>
+              )}
+              <div className="mt-2 text-[10px] text-muted-foreground/75">Opens in a new tab.</div>
+            </section>
+
+            {canDelete ? (
+              <section className="sidebar-section mt-8">
+                <h3 className="sidebar-section-title ui-text-danger">Delete agent</h3>
+                <div className="mt-3 text-[11px] text-muted-foreground/68">
+                  Removes the agent from the gateway config and deletes its scheduled automations.
+                </div>
+                <button
+                  className="sidebar-btn-ghost ui-btn-danger mt-3 w-full px-3 py-2 font-mono text-[10px] font-semibold tracking-[0.06em]"
+                  type="button"
+                  onClick={onDelete}
+                >
+                  Delete agent
+                </button>
+              </section>
+            ) : (
+              <section className="sidebar-section mt-8">
+                <h3 className="sidebar-section-title">System agent</h3>
+                <div className="mt-3 text-[11px] text-muted-foreground">
+                  The main agent is reserved and cannot be deleted.
+                </div>
+              </section>
+            )}
+          </>
+        ) : null}
       </div>
       {cronCreateOpen ? (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 p-4"
           role="dialog"
           aria-modal="true"
-          aria-label="Create cron job"
+          aria-label="Create automation"
           onClick={closeCronCreate}
         >
           <div
@@ -964,9 +877,9 @@ export const AgentSettingsPanel = ({
             <div className="flex items-start justify-between gap-3 px-6 py-5">
               <div className="min-w-0">
                 <div className="text-[11px] font-medium tracking-[0.01em] text-muted-foreground/80">
-                  Cron job composer
+                  Timed automation composer
                 </div>
-                <div className="mt-1 text-base font-semibold text-foreground">Create cron job</div>
+                <div className="mt-1 text-base font-semibold text-foreground">{timedAutomationStepMeta.title}</div>
               </div>
               <button
                 type="button"
@@ -985,7 +898,7 @@ export const AgentSettingsPanel = ({
               {cronCreateStep === 0 ? (
                 <div className="space-y-3">
                   <div className="text-sm text-muted-foreground">
-                    Choose a starter template to prefill your cron job.
+                    Pick a template to start quickly, or choose Custom.
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {CRON_TEMPLATE_OPTIONS.map((option) => {
@@ -1019,14 +932,14 @@ export const AgentSettingsPanel = ({
               {cronCreateStep === 1 ? (
                 <div className="space-y-3">
                   <div className="text-sm text-muted-foreground">
-                    Define what this cron job should do.
+                    Name this automation and describe what it should do.
                   </div>
                   <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
                     <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em]">
-                      Job name
+                      Automation name
                     </span>
                     <input
-                      aria-label="Job name"
+                      aria-label="Automation name"
                       className="h-10 rounded-md border border-border bg-surface-3 px-3 text-sm text-foreground outline-none"
                       value={cronDraft.name}
                       onChange={(event) => updateCronDraft({ name: event.target.value })}
@@ -1144,10 +1057,10 @@ export const AgentSettingsPanel = ({
               ) : null}
               {cronCreateStep === 3 ? (
                 <div className="space-y-3 text-sm text-muted-foreground">
-                  <div>Review your cron job configuration before creating it.</div>
+                  <div>Review details before creating this automation.</div>
                   <div className="ui-card px-3 py-2">
                     <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground">
-                      {cronDraft.name || "Untitled cron job"}
+                      {cronDraft.name || "Untitled automation"}
                     </div>
                     <div className="mt-1 text-[11px]">{cronDraft.taskText || "No task provided."}</div>
                     <div className="mt-2 text-[11px]">
@@ -1165,7 +1078,9 @@ export const AgentSettingsPanel = ({
               ) : null}
             </div>
             <div className="flex items-center justify-between gap-2 border-t border-border/50 px-5 pb-4 pt-5">
-              <div className="text-[11px] text-muted-foreground">Step {cronCreateStep + 1} of 4</div>
+              <div className="text-[11px] text-muted-foreground">
+                {timedAutomationStepMeta.indicator} · Step {cronCreateStep + 1} of 4
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -1189,16 +1104,18 @@ export const AgentSettingsPanel = ({
                     Next
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  className="sidebar-btn-primary px-3 py-2 font-mono text-[10px] font-semibold tracking-[0.06em] disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground"
-                  onClick={() => {
-                    void submitCronCreate();
-                  }}
-                  disabled={cronCreateBusy || cronCreateStep !== 3 || !canSubmitCronCreate}
-                >
-                  Create cron job
-                </button>
+                {cronCreateStep === 3 ? (
+                  <button
+                    type="button"
+                    className="sidebar-btn-primary px-3 py-2 font-mono text-[10px] font-semibold tracking-[0.06em] disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground"
+                    onClick={() => {
+                      void submitCronCreate();
+                    }}
+                    disabled={cronCreateBusy || !canSubmitCronCreate}
+                  >
+                    Create automation
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
@@ -1212,6 +1129,7 @@ type AgentBrainPanelProps = {
   client: GatewayClient;
   agents: AgentState[];
   selectedAgentId: string | null;
+  onRename: (value: string) => Promise<boolean>;
   onClose: () => void;
 };
 
@@ -1219,13 +1137,13 @@ type AgentFilesState = ReturnType<typeof createAgentFilesState>;
 
 type UseAgentFilesEditorResult = {
   agentFiles: AgentFilesState;
-  agentFileTab: AgentFileName;
+  agentFileTab: PersonalityFileName;
   agentFilesLoading: boolean;
   agentFilesSaving: boolean;
   agentFilesDirty: boolean;
   agentFilesError: string | null;
   setAgentFileContent: (value: string) => void;
-  handleAgentFileTabChange: (nextTab: AgentFileName) => Promise<void>;
+  handleAgentFileTabChange: (nextTab: PersonalityFileName) => Promise<void>;
   saveAgentFiles: () => Promise<boolean>;
   reloadAgentFiles: () => Promise<void>;
 };
@@ -1236,7 +1154,7 @@ const useAgentFilesEditor = (params: {
 }): UseAgentFilesEditorResult => {
   const { client, agentId } = params;
   const [agentFiles, setAgentFiles] = useState(createAgentFilesState);
-  const [agentFileTab, setAgentFileTab] = useState<AgentFileName>(AGENT_FILE_NAMES[0]);
+  const [agentFileTab, setAgentFileTab] = useState<PersonalityFileName>(PERSONALITY_FILE_NAMES[0]);
   const [agentFilesLoading, setAgentFilesLoading] = useState(false);
   const [agentFilesSaving, setAgentFilesSaving] = useState(false);
   const [agentFilesDirty, setAgentFilesDirty] = useState(false);
@@ -1324,7 +1242,7 @@ const useAgentFilesEditor = (params: {
   }, [agentFiles, agentId, client]);
 
   const handleAgentFileTabChange = useCallback(
-    async (nextTab: AgentFileName) => {
+    async (nextTab: PersonalityFileName) => {
       if (nextTab === agentFileTab) return;
       if (agentFilesDirty && !agentFilesSaving) {
         const saved = await saveAgentFiles();
@@ -1351,8 +1269,8 @@ const useAgentFilesEditor = (params: {
   }, [loadAgentFiles]);
 
   useEffect(() => {
-    if (!AGENT_FILE_NAMES.includes(agentFileTab)) {
-      setAgentFileTab(AGENT_FILE_NAMES[0]);
+    if (!PERSONALITY_FILE_NAMES.includes(agentFileTab)) {
+      setAgentFileTab(PERSONALITY_FILE_NAMES[0]);
     }
   }, [agentFileTab]);
 
@@ -1374,6 +1292,7 @@ export const AgentBrainPanel = ({
   client,
   agents,
   selectedAgentId,
+  onRename,
   onClose,
 }: AgentBrainPanelProps) => {
   const selectedAgent = useMemo(
@@ -1397,13 +1316,48 @@ export const AgentBrainPanel = ({
     reloadAgentFiles,
   } = useAgentFilesEditor({ client, agentId: selectedAgent?.agentId ?? null });
   const [previewMode, setPreviewMode] = useState(true);
+  const [nameDraft, setNameDraft] = useState(selectedAgent?.name ?? "");
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setNameDraft(selectedAgent?.name ?? "");
+    setRenameError(null);
+  }, [selectedAgent?.agentId, selectedAgent?.name]);
 
   const handleTabChange = useCallback(
-    async (nextTab: AgentFileName) => {
+    async (nextTab: PersonalityFileName) => {
       await handleAgentFileTabChange(nextTab);
     },
     [handleAgentFileTabChange]
   );
+
+  const handleRename = useCallback(async () => {
+    const currentName = selectedAgent?.name?.trim() ?? "";
+    const next = nameDraft.trim();
+    if (!next) {
+      setRenameError("Agent name is required.");
+      return;
+    }
+    if (!selectedAgent || !currentName) {
+      setRenameError("No agent selected.");
+      return;
+    }
+    if (next === currentName) {
+      setRenameError(null);
+      return;
+    }
+    setRenameSaving(true);
+    setRenameError(null);
+    try {
+      const ok = await onRename(next);
+      if (!ok) {
+        setRenameError("Failed to rename agent.");
+      }
+    } finally {
+      setRenameSaving(false);
+    }
+  }, [nameDraft, onRename, selectedAgent]);
 
   const handleClose = useCallback(async () => {
     if (agentFilesSaving) return;
@@ -1417,21 +1371,51 @@ export const AgentBrainPanel = ({
   return (
     <div
       className="agent-inspect-panel flex min-h-0 flex-col overflow-hidden"
-      data-testid="agent-brain-panel"
+      data-testid="agent-personality-panel"
       style={{ position: "relative", left: "auto", top: "auto", width: "100%", height: "100%" }}
     >
       <AgentInspectHeader
-        label="Brain files"
+        label=""
         title={selectedAgent?.name ?? "No agent selected"}
         onClose={() => {
           void handleClose();
         }}
-        closeTestId="agent-brain-close"
-        closeDisabled={agentFilesSaving}
+        closeTestId="agent-personality-close"
+        closeDisabled={agentFilesSaving || renameSaving}
       />
 
       <div className="flex min-h-0 flex-1 flex-col p-4">
-        <section className="flex min-h-0 flex-1 flex-col" data-testid="agent-brain-files">
+        <section className="pb-4 pt-1" data-testid="agent-personality-identity">
+          <label className="sidebar-copy mt-1 flex flex-col gap-2 text-[11px] text-muted-foreground">
+            <span className="font-medium text-foreground/88">Agent name</span>
+            <input
+              aria-label="Agent name"
+              className="sidebar-input h-10 rounded-md px-3 text-xs font-semibold text-foreground outline-none"
+              value={nameDraft}
+              disabled={renameSaving}
+              onChange={(event) => setNameDraft(event.target.value)}
+            />
+          </label>
+          {renameError ? (
+            <div className="ui-alert-danger mt-3 rounded-md px-3 py-2 text-xs">
+              {renameError}
+            </div>
+          ) : null}
+          <div className="mt-2">
+            <button
+              className="sidebar-btn-utility w-full px-4 py-2 font-mono text-[10px] font-semibold tracking-[0.06em] disabled:cursor-not-allowed disabled:text-muted-foreground/55"
+              type="button"
+              onClick={() => {
+                void handleRename();
+              }}
+              disabled={renameSaving}
+            >
+              {renameSaving ? "Saving..." : "Update Name"}
+            </button>
+          </div>
+        </section>
+
+        <section className="mt-4 flex min-h-0 flex-1 flex-col" data-testid="agent-personality-files">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="font-mono text-[10px] font-semibold tracking-[0.06em] text-muted-foreground">
               {AGENT_FILE_META[agentFileTab].hint}
@@ -1444,10 +1428,8 @@ export const AgentBrainPanel = ({
           ) : null}
 
           <div className="ui-segment mt-4 grid grid-cols-3 sm:grid-cols-4">
-            {AGENT_FILE_NAMES.map((name) => {
+            {PERSONALITY_FILE_NAMES.map((name) => {
               const active = name === agentFileTab;
-              const rawLabel = AGENT_FILE_META[name].title.replace(".md", "").toLowerCase();
-              const label = `${rawLabel.charAt(0).toUpperCase()}${rawLabel.slice(1)}`;
               return (
                 <button
                   key={name}
@@ -1458,7 +1440,7 @@ export const AgentBrainPanel = ({
                     void handleTabChange(name);
                   }}
                 >
-                  {label}
+                  {PERSONALITY_FILE_LABELS[name]}
                 </button>
               );
             })}

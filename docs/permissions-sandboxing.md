@@ -41,31 +41,39 @@ The Gateway (OpenClaw) is the enforcement point:
 
 ## Studio: Where “Permissions” Are Chosen
 
-Agent creation is now create-only:
+Agent creation is intentionally lightweight:
 - `src/features/agents/components/AgentCreateModal.tsx` captures `name` and optional avatar shuffle seed.
-- `src/features/agents/operations/createAgentMutationLifecycleOperation.ts` applies queue/guard behavior and calls create.
+- `src/features/agents/operations/mutationLifecycleWorkflow.ts` applies queue/guard behavior and calls create.
 - `src/lib/gateway/agentConfig.ts` (`createGatewayAgent`) performs `config.get` + `agents.create`.
 
-Authority/permission changes happen after creation from settings:
+After creation, Studio applies a safe default capability envelope:
+- Commands: `Ask`
+- Web access: `Off`
+- File tools: `Off`
+
+Implementation:
+- `src/app/page.tsx` (`handleCreateAgentSubmit`) applies `CREATE_AGENT_DEFAULT_PERMISSIONS`.
+- `src/features/agents/operations/agentPermissionsOperation.ts` (`updateAgentPermissionsViaStudio`) persists those defaults.
+
+Further capability changes happen from the `Capabilities` tab:
 - `src/features/agents/operations/agentPermissionsOperation.ts` (`updateAgentPermissionsViaStudio`)
   - updates per-agent exec approvals (`exec.approvals.get` + `exec.approvals.set`)
   - updates tool-group overrides for runtime, web, and file access (`config.get` + `config.patch` via `updateGatewayAgentOverrides`)
   - updates session exec behavior (`sessions.patch` via `syncGatewaySessionSettings`)
-- `src/features/agents/operations/executionRoleUpdateOperation.ts` remains for execution-role-only updates and bootstrap paths.
 
-### Runtime Tool Groups Used By Post-Create Role Updates
+### Runtime Tool Groups Used By Capability Updates
 
-Studio role updates still rely on OpenClaw tool-group expansion (`openclaw/src/agents/tool-policy.ts`), especially:
+Studio capability updates rely on OpenClaw tool-group expansion (`openclaw/src/agents/tool-policy.ts`), especially:
 - `group:runtime` -> runtime execution tools (`exec`, `process`)
 
-What this means in practice:
-- Conservative role removes runtime group access and sets exec approvals to deny.
-- Collaborative/autonomous roles include runtime group access and set exec approvals to allowlist/full respectively.
+Internal mapping detail:
+- Command mode `off|ask|auto` maps to role logic (`conservative|collaborative|autonomous`) for policy generation.
+- UI exposes direct capability controls, not role labels.
 
 ## Studio -> Gateway: “Create Agent” End-to-End
 
 Primary entry points:
-- `src/features/agents/operations/createAgentMutationLifecycleOperation.ts`
+- `src/features/agents/operations/mutationLifecycleWorkflow.ts`
 - `src/lib/gateway/agentConfig.ts` (`createGatewayAgent`)
 
 Sequence:
@@ -228,8 +236,8 @@ This is why “`workspaceAccess=ro`” means more than “mount it read-only”:
 
 Studio create flow no longer compiles authority/sandbox settings during initial create.
 
-When authority is changed post-create, Studio uses:
-- `src/features/agents/operations/executionRoleUpdateOperation.ts`
+When capabilities are changed post-create, Studio uses:
+- `src/features/agents/operations/agentPermissionsOperation.ts` (`updateAgentPermissionsViaStudio`)
 
 That operation updates:
 - exec approvals policy (`exec.approvals.set`)
@@ -312,7 +320,7 @@ Studio wiring for UX:
 
 Studio can also change permissions after an agent exists.
 
-### Capabilities Permissions Updates (Preset + Advanced)
+### Capabilities Permissions Updates
 
 Studio’s permissions flow applies coordinated changes from one save action:
 - Exec approvals policy (per-agent, persisted in exec approvals file)
@@ -323,13 +331,8 @@ Code:
 - `src/features/agents/operations/agentPermissionsOperation.ts` (`updateAgentPermissionsViaStudio`)
 
 UI model:
-- Presets: `Conservative`, `Collaborative`, `Autonomous`
-- Advanced controls: `Command mode` (`Off`/`Ask`/`Auto`), `Web access` (`Off`/`On`), `File tools` (`Off`/`On`)
-- Create modal remains permission-free; permissions are configured only after creation.
-
-Terminology note:
-- Current builds may still label this surface as `Settings`.
-- Planned IA renames this to `Capabilities` and splits `Schedule` and `Advanced` into separate surfaces.
+- Direct controls: `Command mode` (`Off`/`Ask`/`Auto`), `Web access` (`Off`/`On`), `File tools` (`Off`/`On`)
+- Create modal remains permission-light (name/avatar only) and create flow immediately applies safe defaults (`Ask`, web off, file tools off).
 
 Why it matters:
 - You can have exec approvals configured but still be unable to run commands if `group:runtime` is denied.

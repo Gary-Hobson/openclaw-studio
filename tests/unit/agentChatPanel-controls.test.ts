@@ -73,15 +73,15 @@ describe("AgentChatPanel controls", () => {
     expect(screen.getByText("Model")).toBeInTheDocument();
     expect(screen.getByText("Thinking")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("Agent One")).not.toBeInTheDocument();
-    expect(screen.getByTestId("agent-brain-toggle")).toBeInTheDocument();
-    expect(screen.getByLabelText("Open agent brain files")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-new-session-toggle")).toBeInTheDocument();
+    expect(screen.getByLabelText("Start new session")).toBeInTheDocument();
     expect(screen.getByTestId("agent-settings-toggle")).toBeInTheDocument();
-    expect(screen.getByLabelText("Open agent settings")).toBeInTheDocument();
+    expect(screen.getByLabelText("Open personality")).toBeInTheDocument();
     expect(screen.queryByText("Inspect")).not.toBeInTheDocument();
   });
 
-  it("invokes_on_open_brain_when_control_clicked", () => {
-    const onOpenBrain = vi.fn();
+  it("invokes_on_new_session_when_control_clicked", () => {
+    const onNewSession = vi.fn(async () => {});
 
     render(
       createElement(AgentChatPanel, {
@@ -92,7 +92,7 @@ describe("AgentChatPanel controls", () => {
         stopBusy: false,
         onLoadMoreHistory: vi.fn(),
         onOpenSettings: vi.fn(),
-        onOpenBrain,
+        onNewSession,
         onModelChange: vi.fn(),
         onThinkingChange: vi.fn(),
         onDraftChange: vi.fn(),
@@ -102,8 +102,8 @@ describe("AgentChatPanel controls", () => {
       })
     );
 
-    fireEvent.click(screen.getByTestId("agent-brain-toggle"));
-    expect(onOpenBrain).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("agent-new-session-toggle"));
+    expect(onNewSession).toHaveBeenCalledTimes(1);
   });
 
   it("renders semantic status badge markers for idle and running states", () => {
@@ -334,7 +334,7 @@ describe("AgentChatPanel controls", () => {
     expect(within(screen.getByTestId("agent-typing-indicator")).getByText("Thinking")).toBeInTheDocument();
   });
 
-  it("keeps_thinking_animation_visible_when_saved_thinking_exists", () => {
+  it("does_not_render_duplicate_typing_indicator_when_internal_thinking_is_visible", () => {
     render(
       createElement(AgentChatPanel, {
         agent: {
@@ -357,7 +357,8 @@ describe("AgentChatPanel controls", () => {
       })
     );
 
-    expect(screen.getAllByTestId("agent-typing-indicator").length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("agent-typing-indicator")).not.toBeInTheDocument();
+    expect(screen.getByText("Thinking (internal)")).toBeInTheDocument();
   });
 
   it("renders thinking row collapsed by default", () => {

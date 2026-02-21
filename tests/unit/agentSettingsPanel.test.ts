@@ -4,7 +4,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { AgentState } from "@/features/agents/state/store";
 import { AgentSettingsPanel } from "@/features/agents/components/AgentInspectPanels";
 import type { CronJobSummary } from "@/lib/cron/types";
-import type { AgentHeartbeatSummary } from "@/lib/gateway/agentConfig";
 
 const createAgent = (): AgentState => ({
   agentId: "agent-1",
@@ -54,35 +53,16 @@ const createCronJob = (id: string): CronJobSummary => ({
   state: {},
 });
 
-const createHeartbeat = (
-  source: AgentHeartbeatSummary["source"] = "override"
-): AgentHeartbeatSummary => ({
-  id: "agent-1",
-  agentId: "agent-1",
-  source,
-  enabled: true,
-  heartbeat: {
-    every: "30m",
-    target: "last",
-    includeReasoning: false,
-    ackMaxChars: 300,
-    activeHours: null,
-  },
-});
-
 describe("AgentSettingsPanel", () => {
   afterEach(() => {
     cleanup();
   });
 
-  it("renders_identity_rename_section_and_saves_trimmed_name", async () => {
-    const onRename = vi.fn(async () => true);
+  it("does_not_render_name_editor_in_capabilities_mode", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
         onClose: vi.fn(),
-        onRename,
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -96,14 +76,8 @@ describe("AgentSettingsPanel", () => {
       })
     );
 
-    fireEvent.change(screen.getByLabelText("Agent name"), {
-      target: { value: "  Agent Two  " },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Update Name" }));
-
-    await waitFor(() => {
-      expect(onRename).toHaveBeenCalledWith("Agent Two");
-    });
+    expect(screen.queryByLabelText("Agent name")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update Name" })).not.toBeInTheDocument();
   });
 
   it("renders_icon_close_button_with_accessible_label", () => {
@@ -111,8 +85,6 @@ describe("AgentSettingsPanel", () => {
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -134,9 +106,8 @@ describe("AgentSettingsPanel", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "advanced",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -163,8 +134,6 @@ describe("AgentSettingsPanel", () => {
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -178,7 +147,7 @@ describe("AgentSettingsPanel", () => {
       })
     );
 
-    expect(screen.getByText("Permissions")).toBeInTheDocument();
+    expect(screen.queryByText("Capabilities")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run commands off" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run commands ask" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run commands auto" })).toBeInTheDocument();
@@ -197,8 +166,6 @@ describe("AgentSettingsPanel", () => {
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -218,49 +185,44 @@ describe("AgentSettingsPanel", () => {
   });
 
   it("autosaves_updated_permissions_draft", async () => {
-    vi.useFakeTimers();
-    try {
-      const onUpdateAgentPermissions = vi.fn(async () => {});
-      render(
-        createElement(AgentSettingsPanel, {
-          agent: createAgent(),
-          permissionsDraft: {
-            commandMode: "off",
-            webAccess: false,
-            fileTools: false,
-          },
-          onUpdateAgentPermissions,
-          onClose: vi.fn(),
-          onRename: vi.fn(async () => true),
-          onNewSession: vi.fn(),
-          onDelete: vi.fn(),
-          onToolCallingToggle: vi.fn(),
-          onThinkingTracesToggle: vi.fn(),
-          cronJobs: [],
-          cronLoading: false,
-          cronError: null,
-          cronRunBusyJobId: null,
-          cronDeleteBusyJobId: null,
-          onRunCronJob: vi.fn(),
-          onDeleteCronJob: vi.fn(),
-        })
-      );
+    const onUpdateAgentPermissions = vi.fn(async () => {});
+    render(
+      createElement(AgentSettingsPanel, {
+        agent: createAgent(),
+        permissionsDraft: {
+          commandMode: "off",
+          webAccess: false,
+          fileTools: false,
+        },
+        onUpdateAgentPermissions,
+        onClose: vi.fn(),
+        onDelete: vi.fn(),
+        onToolCallingToggle: vi.fn(),
+        onThinkingTracesToggle: vi.fn(),
+        cronJobs: [],
+        cronLoading: false,
+        cronError: null,
+        cronRunBusyJobId: null,
+        cronDeleteBusyJobId: null,
+        onRunCronJob: vi.fn(),
+        onDeleteCronJob: vi.fn(),
+      })
+    );
 
-      fireEvent.click(screen.getByRole("button", { name: "Run commands auto" }));
-      fireEvent.click(screen.getByRole("switch", { name: "Web access" }));
-      fireEvent.click(screen.getByRole("switch", { name: "File tools" }));
-      await vi.advanceTimersByTimeAsync(500);
+    fireEvent.click(screen.getByRole("button", { name: "Run commands auto" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Web access" }));
+    fireEvent.click(screen.getByRole("switch", { name: "File tools" }));
 
-      await waitFor(() => {
+    await waitFor(
+      () => {
         expect(onUpdateAgentPermissions).toHaveBeenCalledWith({
           commandMode: "auto",
           webAccess: true,
           fileTools: true,
         });
-      });
-    } finally {
-      vi.useRealTimers();
-    }
+      },
+      { timeout: 2000 }
+    );
   });
 
   it("does_not_render_runtime_settings_section", () => {
@@ -268,8 +230,6 @@ describe("AgentSettingsPanel", () => {
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -284,17 +244,15 @@ describe("AgentSettingsPanel", () => {
     );
 
     expect(screen.queryByText("Runtime settings")).not.toBeInTheDocument();
-    expect(screen.queryByText("Brain files")).not.toBeInTheDocument();
+    expect(screen.queryByText("Personality")).not.toBeInTheDocument();
   });
 
-  it("invokes_on_new_session_when_clicked", () => {
-    const onNewSession = vi.fn();
+  it("does_not_render_new_session_control_in_advanced_mode", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "advanced",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession,
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -308,17 +266,15 @@ describe("AgentSettingsPanel", () => {
       })
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "New session" }));
-    expect(onNewSession).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "New session" })).not.toBeInTheDocument();
   });
 
-  it("renders_cron_jobs_section_below_session", () => {
+  it("renders_automations_section_when_mode_is_automations", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -332,11 +288,9 @@ describe("AgentSettingsPanel", () => {
       })
     );
 
-    const sessionSection = screen.getByTestId("agent-settings-session");
     const cronSection = screen.getByTestId("agent-settings-cron");
     expect(cronSection).toBeInTheDocument();
-    const position = sessionSection.compareDocumentPosition(cronSection);
-    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByTestId("agent-settings-session")).not.toBeInTheDocument();
   });
 
   it("invokes_run_now_and_disables_play_while_pending", () => {
@@ -345,9 +299,8 @@ describe("AgentSettingsPanel", () => {
     const { rerender } = render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -361,15 +314,14 @@ describe("AgentSettingsPanel", () => {
       })
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Run cron job Job job-1 now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run timed automation Job job-1 now" }));
     expect(onRunCronJob).toHaveBeenCalledWith("job-1");
 
     rerender(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -383,7 +335,7 @@ describe("AgentSettingsPanel", () => {
       })
     );
 
-    expect(screen.getByRole("button", { name: "Run cron job Job job-1 now" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run timed automation Job job-1 now" })).toBeDisabled();
   });
 
   it("invokes_delete_and_disables_trash_while_pending", () => {
@@ -392,9 +344,8 @@ describe("AgentSettingsPanel", () => {
     const { rerender } = render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -408,15 +359,14 @@ describe("AgentSettingsPanel", () => {
       })
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete cron job Job job-1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete timed automation Job job-1" }));
     expect(onDeleteCronJob).toHaveBeenCalledWith("job-1");
 
     rerender(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -430,16 +380,15 @@ describe("AgentSettingsPanel", () => {
       })
     );
 
-    expect(screen.getByRole("button", { name: "Delete cron job Job job-1" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete timed automation Job job-1" })).toBeDisabled();
   });
 
   it("shows_empty_cron_state_when_agent_has_no_jobs", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -453,7 +402,7 @@ describe("AgentSettingsPanel", () => {
       })
     );
 
-    expect(screen.getByText("No cron jobs for this agent.")).toBeInTheDocument();
+    expect(screen.getByText("No timed automations for this agent.")).toBeInTheDocument();
     expect(screen.getByTestId("cron-empty-icon")).toBeInTheDocument();
   });
 
@@ -461,9 +410,8 @@ describe("AgentSettingsPanel", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -484,9 +432,8 @@ describe("AgentSettingsPanel", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -501,16 +448,15 @@ describe("AgentSettingsPanel", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
-    expect(screen.getByRole("dialog", { name: "Create cron job" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Create automation" })).toBeInTheDocument();
   });
 
   it("updates_template_defaults_when_switching_templates", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -527,12 +473,12 @@ describe("AgentSettingsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.click(screen.getByRole("button", { name: "Weekly Review" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByLabelText("Job name")).toHaveValue("Weekly review");
+    expect(screen.getByLabelText("Automation name")).toHaveValue("Weekly review");
 
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     fireEvent.click(screen.getByRole("button", { name: "Morning Brief" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByLabelText("Job name")).toHaveValue("Morning brief");
+    expect(screen.getByLabelText("Automation name")).toHaveValue("Morning brief");
   });
 
   it("submits_modal_with_agent_scoped_draft", async () => {
@@ -540,9 +486,8 @@ describe("AgentSettingsPanel", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -560,15 +505,21 @@ describe("AgentSettingsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.click(screen.getByRole("button", { name: "Custom" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    fireEvent.change(screen.getByLabelText("Job name"), {
+    fireEvent.change(screen.getByLabelText("Automation name"), {
       target: { value: "Nightly sync" },
     });
     fireEvent.change(screen.getByLabelText("Task"), {
       target: { value: "Sync project status and report blockers." },
     });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Next" })).not.toBeDisabled();
+    });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    fireEvent.click(screen.getByRole("button", { name: "Create cron job" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Create automation" })).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
 
     await waitFor(() => {
       expect(onCreateCronJob).toHaveBeenCalledWith({
@@ -584,13 +535,12 @@ describe("AgentSettingsPanel", () => {
     });
   });
 
-  it("disables_create_submit_while_create_in_flight", () => {
+  it("hides_create_submit_before_review_step_and_disables_next_when_busy", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -606,7 +556,8 @@ describe("AgentSettingsPanel", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
-    expect(screen.getByRole("button", { name: "Create cron job" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Create automation" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
 
   it("keeps_modal_open_and_shows_error_when_create_fails", async () => {
@@ -616,9 +567,8 @@ describe("AgentSettingsPanel", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -636,29 +586,34 @@ describe("AgentSettingsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.click(screen.getByRole("button", { name: "Custom" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    fireEvent.change(screen.getByLabelText("Job name"), {
+    fireEvent.change(screen.getByLabelText("Automation name"), {
       target: { value: "Nightly sync" },
     });
     fireEvent.change(screen.getByLabelText("Task"), {
       target: { value: "Sync project status and report blockers." },
     });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Next" })).not.toBeDisabled();
+    });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    fireEvent.click(screen.getByRole("button", { name: "Create cron job" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Create automation" })).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
 
     await waitFor(() => {
       expect(screen.getByText("Gateway exploded")).toBeInTheDocument();
     });
-    expect(screen.getByRole("dialog", { name: "Create cron job" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Create automation" })).toBeInTheDocument();
   });
 
-  it("renders_heartbeat_section_below_cron", () => {
+  it("shows_heartbeat_coming_soon_in_automations_mode", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "automations",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -669,25 +624,19 @@ describe("AgentSettingsPanel", () => {
         cronDeleteBusyJobId: null,
         onRunCronJob: vi.fn(),
         onDeleteCronJob: vi.fn(),
-        heartbeats: [createHeartbeat()],
       })
     );
 
-    const cronSection = screen.getByTestId("agent-settings-cron");
-    const heartbeatSection = screen.getByTestId("agent-settings-heartbeat");
-    expect(heartbeatSection).toBeInTheDocument();
-    const position = cronSection.compareDocumentPosition(heartbeatSection);
-    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId("agent-settings-heartbeat-coming-soon")).toBeInTheDocument();
+    expect(screen.getByText("Heartbeat automation controls are coming soon.")).toBeInTheDocument();
   });
 
-  it("invokes_run_heartbeat_and_disables_delete_for_inherited", () => {
-    const onRunHeartbeat = vi.fn();
+  it("shows_control_ui_section_in_advanced_mode", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "advanced",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -698,24 +647,19 @@ describe("AgentSettingsPanel", () => {
         cronDeleteBusyJobId: null,
         onRunCronJob: vi.fn(),
         onDeleteCronJob: vi.fn(),
-        heartbeats: [createHeartbeat("default")],
-        onRunHeartbeat,
       })
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Run heartbeat for agent-1 now" }));
-    expect(onRunHeartbeat).toHaveBeenCalledWith("agent-1");
-    expect(screen.getByRole("button", { name: "Delete heartbeat for agent-1" })).toBeDisabled();
+    expect(screen.getByTestId("agent-settings-control-ui")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Full Control UI" })).toBeDisabled();
   });
 
-  it("invokes_delete_heartbeat_for_override", () => {
-    const onDeleteHeartbeat = vi.fn();
+  it("renders_enabled_control_ui_link_when_available", () => {
     render(
       createElement(AgentSettingsPanel, {
         agent: createAgent(),
+        mode: "advanced",
         onClose: vi.fn(),
-        onRename: vi.fn(async () => true),
-        onNewSession: vi.fn(),
         onDelete: vi.fn(),
         onToolCallingToggle: vi.fn(),
         onThinkingTracesToggle: vi.fn(),
@@ -726,12 +670,11 @@ describe("AgentSettingsPanel", () => {
         cronDeleteBusyJobId: null,
         onRunCronJob: vi.fn(),
         onDeleteCronJob: vi.fn(),
-        heartbeats: [createHeartbeat("override")],
-        onDeleteHeartbeat,
+        controlUiUrl: "http://localhost:3000/control",
       })
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete heartbeat for agent-1" }));
-    expect(onDeleteHeartbeat).toHaveBeenCalledWith("agent-1");
+    const link = screen.getByRole("link", { name: "Open Full Control UI" });
+    expect(link).toHaveAttribute("href", "http://localhost:3000/control");
   });
 });

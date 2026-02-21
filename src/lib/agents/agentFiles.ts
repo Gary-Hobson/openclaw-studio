@@ -10,6 +10,22 @@ export const AGENT_FILE_NAMES = [
 
 export type AgentFileName = (typeof AGENT_FILE_NAMES)[number];
 
+export const PERSONALITY_FILE_NAMES = [
+  "SOUL.md",
+  "AGENTS.md",
+  "USER.md",
+  "IDENTITY.md",
+] as const satisfies readonly AgentFileName[];
+
+export type PersonalityFileName = (typeof PERSONALITY_FILE_NAMES)[number];
+
+export const PERSONALITY_FILE_LABELS: Record<PersonalityFileName, string> = {
+  "SOUL.md": "Personality",
+  "AGENTS.md": "Instructions",
+  "USER.md": "About You",
+  "IDENTITY.md": "Identity",
+};
+
 export const isAgentFileName = (value: string): value is AgentFileName =>
   AGENT_FILE_NAMES.includes(value as AgentFileName);
 

@@ -12,7 +12,7 @@ import {
 import type { AgentState as AgentRecord } from "@/features/agents/state/store";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Brain, ChevronRight, Clock, Cog, Shuffle } from "lucide-react";
+import { ChevronRight, Clock, Cog, Shuffle } from "lucide-react";
 import type { GatewayModelChoice } from "@/lib/gateway/models";
 import { rewriteMediaLinesToMarkdown } from "@/lib/text/media-markdown";
 import { normalizeAssistantDisplayText } from "@/lib/text/assistantText";
@@ -98,7 +98,7 @@ type AgentChatPanelProps = {
   stopDisabledReason?: string | null;
   onLoadMoreHistory: () => void;
   onOpenSettings: () => void;
-  onOpenBrain?: () => void;
+  onNewSession?: () => Promise<void> | void;
   onModelChange: (value: string | null) => void;
   onThinkingChange: (value: string | null) => void;
   onDraftChange: (value: string) => void;
@@ -401,7 +401,7 @@ const AssistantMessageCard = memo(function AssistantMessageCard({
           </div>
         ) : (
           <div className="mt-2 space-y-3 dark:space-y-5">
-            {streaming ? (
+            {streaming && !hasThinking ? (
               <div
                 className="flex items-center gap-2 text-[10px] text-muted-foreground/80"
                 role="status"
@@ -832,7 +832,7 @@ export const AgentChatPanel = ({
   stopDisabledReason = null,
   onLoadMoreHistory,
   onOpenSettings,
-  onOpenBrain,
+  onNewSession,
   onModelChange,
   onThinkingChange,
   onDraftChange,
@@ -843,6 +843,7 @@ export const AgentChatPanel = ({
   onResolveExecApproval,
 }: AgentChatPanelProps) => {
   const [draftValue, setDraftValue] = useState(agent.draft);
+  const [newSessionBusy, setNewSessionBusy] = useState(false);
   const draftRef = useRef<HTMLTextAreaElement | null>(null);
   const scrollToBottomNextOutputRef = useRef(false);
   const plainDraftRef = useRef(agent.draft);
@@ -875,7 +876,6 @@ export const AgentChatPanel = ({
         sessionKey: agent.sessionKey,
       };
       plainDraftRef.current = agent.draft;
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDraftValue(agent.draft);
       return;
     }
@@ -928,12 +928,19 @@ export const AgentChatPanel = ({
     [agent.outputLines, agent.showThinkingTraces, agent.toolCallingEnabled]
   );
   const running = agent.status === "running";
+  const renderBlocks = useMemo(() => buildAgentChatRenderBlocks(chatItems), [chatItems]);
+  const hasActiveStreamingTailInTranscript =
+    running && renderBlocks.length > 0 && !renderBlocks[renderBlocks.length - 1].text;
   const liveAssistantText =
     running && agent.streamText ? normalizeAssistantDisplayText(agent.streamText) : "";
   const liveThinkingText =
     running && agent.showThinkingTraces && agent.thinkingTrace ? agent.thinkingTrace.trim() : "";
   const hasVisibleLiveThinking = Boolean(liveThinkingText.trim());
-  const showTypingIndicator = running && !hasVisibleLiveThinking;
+  const showTypingIndicator =
+    running &&
+    !hasVisibleLiveThinking &&
+    !liveAssistantText &&
+    !hasActiveStreamingTailInTranscript;
 
   const modelOptions = useMemo(
     () =>
@@ -983,6 +990,18 @@ export const AgentChatPanel = ({
   const handleComposerSend = useCallback(() => {
     handleSend(draftValue);
   }, [draftValue, handleSend]);
+
+  const handleNewSession = useCallback(async () => {
+    if (!onNewSession || newSessionBusy || !canSend) return;
+    setNewSessionBusy(true);
+    try {
+      await onNewSession();
+    } finally {
+      setNewSessionBusy(false);
+    }
+  }, [canSend, newSessionBusy, onNewSession]);
+
+  const newSessionDisabled = newSessionBusy || !canSend || !onNewSession;
 
   return (
     <div data-agent-panel className="group fade-up relative flex h-full w-full flex-col">
@@ -1080,21 +1099,24 @@ export const AgentChatPanel = ({
 
           <div className="mt-0.5 flex items-center gap-2">
             <button
-              className="nodrag ui-btn-icon"
+              className="nodrag ui-btn-primary px-3 py-2 font-mono text-[12px] font-medium tracking-[0.02em] disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground"
               type="button"
-              data-testid="agent-brain-toggle"
-              aria-label="Open agent brain files"
-              title="Brain files"
-              onClick={() => onOpenBrain?.()}
+              data-testid="agent-new-session-toggle"
+              aria-label="Start new session"
+              title="Start new session"
+              onClick={() => {
+                void handleNewSession();
+              }}
+              disabled={newSessionDisabled}
             >
-              <Brain className="h-4 w-4" />
+              {newSessionBusy ? "Starting..." : "New session"}
             </button>
             <button
               className="nodrag ui-btn-icon"
               type="button"
               data-testid="agent-settings-toggle"
-              aria-label="Open agent settings"
-              title="Agent settings"
+              aria-label="Open personality"
+              title="Personality"
               onClick={onOpenSettings}
             >
               <Cog className="h-4 w-4" />

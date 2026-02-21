@@ -55,13 +55,9 @@ import type { CronCreateDraft } from "@/lib/cron/createPayloadBuilder";
 import {
   createGatewayAgent,
   renameGatewayAgent,
-  removeGatewayHeartbeatOverride,
-  listHeartbeatsForAgent,
   readConfigAgentList,
   slugifyAgentName,
-  triggerHeartbeatNow,
   updateGatewayAgentOverrides,
-  type AgentHeartbeatSummary,
 } from "@/lib/gateway/agentConfig";
 import { buildAvatarDataUrl } from "@/lib/avatars/multiavatar";
 import { createStudioSettingsCoordinator } from "@/lib/studio/coordinator";
@@ -107,7 +103,6 @@ import {
 } from "@/features/agents/operations/latestUpdateWorkflow";
 import { createSpecialLatestUpdateOperation } from "@/features/agents/operations/specialLatestUpdateOperation";
 import {
-  updateExecutionRoleViaStudio,
   updateAgentPermissionsViaStudio,
   resolveAgentPermissionsDraft,
   type AgentPermissionsDraft,
@@ -138,11 +133,77 @@ import {
 const DEFAULT_CHAT_HISTORY_LIMIT = 200;
 const MAX_CHAT_HISTORY_LIMIT = 5000;
 const PENDING_EXEC_APPROVAL_PRUNE_GRACE_MS = 500;
+const EXEC_APPROVAL_AUTO_RESUME_WAIT_TIMEOUT_MS = 3_000;
+const CREATE_AGENT_DEFAULT_PERMISSIONS: AgentPermissionsDraft = {
+  commandMode: "ask",
+  webAccess: false,
+  fileTools: false,
+};
 
-type MobilePane = "fleet" | "chat" | "settings" | "brain";
+type MobilePane = "fleet" | "chat" | "settings";
+type InspectSidebarTab = "personality" | "capabilities" | "automations" | "advanced";
+type InspectSidebarState = { agentId: string; tab: InspectSidebarTab } | null;
 type RestartingMutationBlockState = MutationBlockState & { kind: MutationWorkflowKind };
 
 const RESERVED_MAIN_AGENT_ID = "main";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+const normalizeControlUiBasePath = (basePath: string): string => {
+  let normalized = basePath.trim();
+  if (!normalized || normalized === "/") return "";
+  if (!normalized.startsWith("/")) {
+    normalized = `/${normalized}`;
+  }
+  if (normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+};
+
+const resolveControlUiUrl = (params: {
+  gatewayUrl: string;
+  configSnapshot: GatewayModelPolicySnapshot | null;
+}): string | null => {
+  const rawGatewayUrl = params.gatewayUrl.trim();
+  if (!rawGatewayUrl) return null;
+
+  let controlUiEnabled = true;
+  let controlUiBasePath = "";
+
+  const config = params.configSnapshot?.config;
+  if (isRecord(config)) {
+    const configRecord = config as Record<string, unknown>;
+    const gateway = isRecord(configRecord["gateway"])
+      ? (configRecord["gateway"] as Record<string, unknown>)
+      : null;
+    const controlUi = gateway && isRecord(gateway.controlUi) ? gateway.controlUi : null;
+    if (controlUi && typeof controlUi.enabled === "boolean") {
+      controlUiEnabled = controlUi.enabled;
+    }
+    if (typeof controlUi?.basePath === "string") {
+      controlUiBasePath = normalizeControlUiBasePath(controlUi.basePath);
+    }
+  }
+
+  if (!controlUiEnabled) return null;
+
+  try {
+    const url = new URL(rawGatewayUrl);
+    if (url.protocol === "ws:") {
+      url.protocol = "http:";
+    } else if (url.protocol === "wss:") {
+      url.protocol = "https:";
+    }
+    url.pathname = controlUiBasePath ? `${controlUiBasePath}/` : "/";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
 
 const resolveNextNewAgentName = (agents: AgentState[]) => {
   const baseName = "New Agent";
@@ -200,19 +261,13 @@ const AgentStudioPage = () => {
   const [createAgentModalError, setCreateAgentModalError] = useState<string | null>(null);
   const [stopBusyAgentId, setStopBusyAgentId] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>("chat");
-  const [settingsAgentId, setSettingsAgentId] = useState<string | null>(null);
+  const [inspectSidebar, setInspectSidebar] = useState<InspectSidebarState>(null);
   const [settingsCronJobs, setSettingsCronJobs] = useState<CronJobSummary[]>([]);
   const [settingsCronLoading, setSettingsCronLoading] = useState(false);
   const [settingsCronError, setSettingsCronError] = useState<string | null>(null);
   const [cronCreateBusy, setCronCreateBusy] = useState(false);
   const [cronRunBusyJobId, setCronRunBusyJobId] = useState<string | null>(null);
   const [cronDeleteBusyJobId, setCronDeleteBusyJobId] = useState<string | null>(null);
-  const [settingsHeartbeats, setSettingsHeartbeats] = useState<AgentHeartbeatSummary[]>([]);
-  const [settingsHeartbeatLoading, setSettingsHeartbeatLoading] = useState(false);
-  const [settingsHeartbeatError, setSettingsHeartbeatError] = useState<string | null>(null);
-  const [heartbeatRunBusyId, setHeartbeatRunBusyId] = useState<string | null>(null);
-  const [heartbeatDeleteBusyId, setHeartbeatDeleteBusyId] = useState<string | null>(null);
-  const [brainPanelOpen, setBrainPanelOpen] = useState(false);
   const [createAgentBlock, setCreateAgentBlock] = useState<CreateAgentBlockState | null>(null);
   const [restartingMutationBlock, setRestartingMutationBlock] =
     useState<RestartingMutationBlockState | null>(null);
@@ -258,12 +313,14 @@ const AgentStudioPage = () => {
     if (!lastMessage || !isHeartbeatPrompt(lastMessage)) return null;
     return "This task is running as an automatic heartbeat check. Stopping heartbeat runs from Studio isn't available yet (coming soon).";
   }, [focusedAgent]);
-  const settingsAgent = useMemo(() => {
-    if (!settingsAgentId) return null;
-    return agents.find((entry) => entry.agentId === settingsAgentId) ?? null;
-  }, [agents, settingsAgentId]);
+  const inspectSidebarAgentId = inspectSidebar?.agentId ?? null;
+  const inspectSidebarTab = inspectSidebar?.tab ?? null;
+  const inspectSidebarAgent = useMemo(() => {
+    if (!inspectSidebarAgentId) return null;
+    return agents.find((entry) => entry.agentId === inspectSidebarAgentId) ?? null;
+  }, [agents, inspectSidebarAgentId]);
   const settingsAgentPermissionsDraft = useMemo(() => {
-    if (!settingsAgent) return null;
+    if (!inspectSidebarAgent) return null;
     const baseConfig =
       gatewayConfigSnapshot?.config &&
       typeof gatewayConfigSnapshot.config === "object" &&
@@ -271,7 +328,7 @@ const AgentStudioPage = () => {
         ? (gatewayConfigSnapshot.config as Record<string, unknown>)
         : undefined;
     const list = readConfigAgentList(baseConfig);
-    const configEntry = list.find((entry) => entry.id === settingsAgent.agentId) ?? null;
+    const configEntry = list.find((entry) => entry.id === inspectSidebarAgent.agentId) ?? null;
     const toolsRaw =
       configEntry && typeof (configEntry as Record<string, unknown>).tools === "object"
         ? ((configEntry as Record<string, unknown>).tools as unknown)
@@ -281,13 +338,10 @@ const AgentStudioPage = () => {
         ? (toolsRaw as Record<string, unknown>)
         : null;
     return resolveAgentPermissionsDraft({
-      agent: settingsAgent,
+      agent: inspectSidebarAgent,
       existingTools: tools,
     });
-  }, [gatewayConfigSnapshot, settingsAgent]);
-  const selectedBrainAgentId = useMemo(() => {
-    return focusedAgent?.agentId ?? agents[0]?.agentId ?? null;
-  }, [agents, focusedAgent]);
+  }, [gatewayConfigSnapshot, inspectSidebarAgent]);
   const focusedPendingExecApprovals = useMemo(() => {
     if (!focusedAgentId) return unscopedPendingExecApprovals;
     const scoped = pendingExecApprovalsByAgentId[focusedAgentId] ?? [];
@@ -319,6 +373,10 @@ const AgentStudioPage = () => {
   );
   const hasRunningAgents = runningAgentCount > 0;
   const isLocalGateway = useMemo(() => isLocalGatewayUrl(gatewayUrl), [gatewayUrl]);
+  const controlUiUrl = useMemo(
+    () => resolveControlUiUrl({ gatewayUrl, configSnapshot: gatewayConfigSnapshot }),
+    [gatewayConfigSnapshot, gatewayUrl]
+  );
 
   const hasRenameMutationBlock = restartingMutationBlock?.kind === "rename-agent";
   const hasDeleteMutationBlock = restartingMutationBlock?.kind === "delete-agent";
@@ -462,7 +520,7 @@ const AgentStudioPage = () => {
       const resolvedAgentId = agentId.trim();
       if (!resolvedAgentId) {
         setSettingsCronJobs([]);
-        setSettingsCronError("Failed to load cron jobs: missing agent id.");
+        setSettingsCronError("Failed to load schedules: missing agent id.");
         return;
       }
       setSettingsCronLoading(true);
@@ -472,7 +530,7 @@ const AgentStudioPage = () => {
         const filtered = filterCronJobsForAgent(result.jobs, resolvedAgentId);
         setSettingsCronJobs(sortCronJobsByUpdatedAt(filtered));
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to load cron jobs.";
+        const message = err instanceof Error ? err.message : "Failed to load schedules.";
         setSettingsCronJobs([]);
         setSettingsCronError(message);
         if (!isGatewayDisconnectLikeError(err)) {
@@ -480,33 +538,6 @@ const AgentStudioPage = () => {
         }
       } finally {
         setSettingsCronLoading(false);
-      }
-    },
-    [client]
-  );
-
-  const loadHeartbeatsForSettingsAgent = useCallback(
-    async (agentId: string) => {
-      const resolvedAgentId = agentId.trim();
-      if (!resolvedAgentId) {
-        setSettingsHeartbeats([]);
-        setSettingsHeartbeatError("Failed to load heartbeats: missing agent id.");
-        return;
-      }
-      setSettingsHeartbeatLoading(true);
-      setSettingsHeartbeatError(null);
-      try {
-        const result = await listHeartbeatsForAgent(client, resolvedAgentId);
-        setSettingsHeartbeats(result.heartbeats);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to load heartbeats.";
-        setSettingsHeartbeats([]);
-        setSettingsHeartbeatError(message);
-        if (!isGatewayDisconnectLikeError(err)) {
-          console.error(message);
-        }
-      } finally {
-        setSettingsHeartbeatLoading(false);
       }
     },
     [client]
@@ -790,41 +821,46 @@ const AgentStudioPage = () => {
 
 
   useEffect(() => {
-    if (!settingsAgentId) return;
-    if (state.selectedAgentId && state.selectedAgentId !== settingsAgentId) {
-      setSettingsAgentId(null);
+    if (!inspectSidebar) return;
+    const selectedAgentId = state.selectedAgentId?.trim() ?? "";
+    if (!selectedAgentId) {
+      setInspectSidebar(null);
+      return;
     }
-  }, [settingsAgentId, state.selectedAgentId]);
+    if (inspectSidebar.agentId === selectedAgentId) return;
+    setInspectSidebar((current) =>
+      current ? { ...current, agentId: selectedAgentId } : current
+    );
+  }, [inspectSidebar, state.selectedAgentId]);
 
   useEffect(() => {
-    if (settingsAgentId && !settingsAgent) {
-      setSettingsAgentId(null);
+    if (inspectSidebarAgentId && !inspectSidebarAgent) {
+      setInspectSidebar(null);
     }
-  }, [settingsAgentId, settingsAgent]);
+  }, [inspectSidebarAgent, inspectSidebarAgentId]);
 
   useEffect(() => {
-    if (!settingsAgentId) return;
+    if (!inspectSidebarAgentId) return;
     if (status !== "connected") return;
     void refreshGatewayConfigSnapshot();
-  }, [refreshGatewayConfigSnapshot, settingsAgentId, status]);
+  }, [refreshGatewayConfigSnapshot, inspectSidebarAgentId, status]);
 
   useEffect(() => {
-    if (!settingsAgentId || status !== "connected") {
+    if (!inspectSidebarAgentId || status !== "connected" || inspectSidebarTab !== "automations") {
       setSettingsCronJobs([]);
       setSettingsCronLoading(false);
       setSettingsCronError(null);
       setCronRunBusyJobId(null);
       setCronDeleteBusyJobId(null);
-      setSettingsHeartbeats([]);
-      setSettingsHeartbeatLoading(false);
-      setSettingsHeartbeatError(null);
-      setHeartbeatRunBusyId(null);
-      setHeartbeatDeleteBusyId(null);
       return;
     }
-    void loadCronJobsForSettingsAgent(settingsAgentId);
-    void loadHeartbeatsForSettingsAgent(settingsAgentId);
-  }, [loadCronJobsForSettingsAgent, loadHeartbeatsForSettingsAgent, settingsAgentId, status]);
+    void loadCronJobsForSettingsAgent(inspectSidebarAgentId);
+  }, [
+    inspectSidebarAgentId,
+    inspectSidebarTab,
+    loadCronJobsForSettingsAgent,
+    status,
+  ]);
 
   useEffect(() => {
     const nowMs = Date.now();
@@ -873,22 +909,10 @@ const AgentStudioPage = () => {
   }, [agents, dispatch, pendingExecApprovalsByAgentId]);
 
   useEffect(() => {
-    if (!brainPanelOpen) return;
-    if (selectedBrainAgentId) return;
-    setBrainPanelOpen(false);
-  }, [brainPanelOpen, selectedBrainAgentId]);
-
-  useEffect(() => {
     if (mobilePane !== "settings") return;
-    if (settingsAgent) return;
+    if (inspectSidebarAgent) return;
     setMobilePane("chat");
-  }, [mobilePane, settingsAgent]);
-
-  useEffect(() => {
-    if (mobilePane !== "brain") return;
-    if (brainPanelOpen && selectedBrainAgentId) return;
-    setMobilePane("chat");
-  }, [brainPanelOpen, mobilePane, selectedBrainAgentId]);
+  }, [inspectSidebarAgent, mobilePane]);
 
   useEffect(() => {
     if (status !== "connected") {
@@ -1098,26 +1122,21 @@ const AgentStudioPage = () => {
     }
   }, [agents, loadAgentHistory, status]);
 
-  const handleOpenAgentSettings = useCallback(
-    (agentId: string) => {
+  const handleOpenAgentInspectSidebar = useCallback(
+    (agentId: string, tab: InspectSidebarTab) => {
       flushPendingDraft(focusedAgent?.agentId ?? null);
-      setBrainPanelOpen(false);
-      setSettingsAgentId(agentId);
+      setInspectSidebar({ agentId, tab });
       setMobilePane("settings");
       dispatch({ type: "selectAgent", agentId });
     },
     [dispatch, flushPendingDraft, focusedAgent]
   );
 
-  const handleOpenAgentBrain = useCallback(
+  const handleOpenAgentPersonality = useCallback(
     (agentId: string) => {
-      flushPendingDraft(focusedAgent?.agentId ?? null);
-      setSettingsAgentId(null);
-      setBrainPanelOpen(true);
-      setMobilePane("brain");
-      dispatch({ type: "selectAgent", agentId });
+      handleOpenAgentInspectSidebar(agentId, "personality");
     },
-    [dispatch, flushPendingDraft, focusedAgent]
+    [handleOpenAgentInspectSidebar]
   );
 
   const runRestartingMutationLifecycle = useCallback(
@@ -1219,7 +1238,7 @@ const AgentStudioPage = () => {
       const agent = agents.find((entry) => entry.agentId === agentId);
       if (!agent) return;
       const confirmed = window.confirm(
-        `Delete ${agent.name}? This removes the agent from gateway config + cron and moves its workspace/state into ~/.openclaw/trash on the gateway host.`
+        `Delete ${agent.name}? This removes the agent from gateway config + scheduled automations and moves its workspace/state into ~/.openclaw/trash on the gateway host.`
       );
       if (!confirmed) return;
       await runRestartingMutationLifecycle({
@@ -1234,7 +1253,7 @@ const AgentStudioPage = () => {
             fetchJson,
             logError: (message, error) => console.error(message, error),
           });
-          setSettingsAgentId(null);
+          setInspectSidebar(null);
         },
       });
     },
@@ -1266,7 +1285,7 @@ const AgentStudioPage = () => {
           onJobs: setSettingsCronJobs,
         });
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to create cron job.";
+        const message = err instanceof Error ? err.message : "Failed to create automation.";
         if (!isGatewayDisconnectLikeError(err)) {
           console.error(message);
         }
@@ -1288,7 +1307,7 @@ const AgentStudioPage = () => {
         await runCronJobNow(client, resolvedJobId);
         await loadCronJobsForSettingsAgent(resolvedAgentId);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to run cron job.";
+        const message = err instanceof Error ? err.message : "Failed to run schedule.";
         setSettingsCronError(message);
         console.error(message);
       } finally {
@@ -1313,7 +1332,7 @@ const AgentStudioPage = () => {
         }
         await loadCronJobsForSettingsAgent(resolvedAgentId);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to delete cron job.";
+        const message = err instanceof Error ? err.message : "Failed to delete schedule.";
         setSettingsCronError(message);
         console.error(message);
       } finally {
@@ -1321,60 +1340,6 @@ const AgentStudioPage = () => {
       }
     },
     [client, cronCreateBusy, cronDeleteBusyJobId, cronRunBusyJobId, loadCronJobsForSettingsAgent]
-  );
-
-  const handleRunHeartbeat = useCallback(
-    async (agentId: string, heartbeatId: string) => {
-      const resolvedAgentId = agentId.trim();
-      const resolvedHeartbeatId = heartbeatId.trim();
-      if (!resolvedAgentId || !resolvedHeartbeatId) return;
-      if (heartbeatRunBusyId || heartbeatDeleteBusyId) return;
-      setHeartbeatRunBusyId(resolvedHeartbeatId);
-      setSettingsHeartbeatError(null);
-      try {
-        await triggerHeartbeatNow(client, resolvedAgentId);
-        await loadHeartbeatsForSettingsAgent(resolvedAgentId);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to trigger heartbeat.";
-        setSettingsHeartbeatError(message);
-        console.error(message);
-      } finally {
-        setHeartbeatRunBusyId((current) =>
-          current === resolvedHeartbeatId ? null : current
-        );
-      }
-    },
-    [client, heartbeatDeleteBusyId, heartbeatRunBusyId, loadHeartbeatsForSettingsAgent]
-  );
-
-  const handleDeleteHeartbeat = useCallback(
-    async (agentId: string, heartbeatId: string) => {
-      const resolvedAgentId = agentId.trim();
-      const resolvedHeartbeatId = heartbeatId.trim();
-      if (!resolvedAgentId || !resolvedHeartbeatId) return;
-      if (heartbeatRunBusyId || heartbeatDeleteBusyId) return;
-      setHeartbeatDeleteBusyId(resolvedHeartbeatId);
-      setSettingsHeartbeatError(null);
-      try {
-        await removeGatewayHeartbeatOverride({
-          client,
-          agentId: resolvedAgentId,
-        });
-        setSettingsHeartbeats((heartbeats) =>
-          heartbeats.filter((heartbeat) => heartbeat.id !== resolvedHeartbeatId)
-        );
-        await loadHeartbeatsForSettingsAgent(resolvedAgentId);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to delete heartbeat.";
-        setSettingsHeartbeatError(message);
-        console.error(message);
-      } finally {
-        setHeartbeatDeleteBusyId((current) =>
-          current === resolvedHeartbeatId ? null : current
-        );
-      }
-    },
-    [client, heartbeatDeleteBusyId, heartbeatRunBusyId, loadHeartbeatsForSettingsAgent]
   );
 
   const handleOpenCreateAgentModal = useCallback(() => {
@@ -1468,32 +1433,29 @@ const AgentStudioPage = () => {
             }
 
             let bootstrapError: string | null = null;
-            if (
-              createdAgent.sessionExecSecurity !== "full" ||
-              createdAgent.sessionExecAsk !== "off"
-            ) {
-              try {
-                await updateExecutionRoleViaStudio({
-                  client,
-                  agentId: createdAgent.agentId,
-                  sessionKey: createdAgent.sessionKey,
-                  role: "autonomous",
-                  loadAgents: async () => {},
-                });
-                await loadAgents();
-                await refreshGatewayConfigSnapshot();
-              } catch (err) {
-                bootstrapError =
-                  err instanceof Error ? err.message : "Failed to apply autonomous defaults.";
-                setError(
-                  `Agent created, but autonomous defaults could not be applied: ${bootstrapError}`
-                );
-              }
+            try {
+              await updateAgentPermissionsViaStudio({
+                client,
+                agentId: createdAgent.agentId,
+                sessionKey: createdAgent.sessionKey,
+                draft: CREATE_AGENT_DEFAULT_PERMISSIONS,
+                loadAgents,
+              });
+              await refreshGatewayConfigSnapshot();
+            } catch (err) {
+              bootstrapError =
+                err instanceof Error ? err.message : "Failed to apply default permissions.";
+              setError(
+                `Agent created, but default permissions could not be applied: ${bootstrapError}`
+              );
             }
 
-            handleOpenAgentSettings(completion.agentId);
+            flushPendingDraft(focusedAgent?.agentId ?? null);
+            dispatch({ type: "selectAgent", agentId: completion.agentId });
+            setInspectSidebar({ agentId: completion.agentId, tab: "capabilities" });
+            setMobilePane("chat");
             if (bootstrapError) {
-              setCreateAgentModalError(`Autonomous defaults failed: ${bootstrapError}`);
+              setCreateAgentModalError(`Default permissions failed: ${bootstrapError}`);
             } else {
               setCreateAgentModalError(null);
             }
@@ -1519,7 +1481,6 @@ const AgentStudioPage = () => {
       focusedAgent,
       hasDeleteMutationBlock,
       hasRenameMutationBlock,
-      handleOpenAgentSettings,
       loadAgents,
       persistAvatarSeed,
       refreshGatewayConfigSnapshot,
@@ -1609,7 +1570,7 @@ const AgentStudioPage = () => {
           agentId,
           patch,
         });
-        setSettingsAgentId(null);
+        setInspectSidebar(null);
         setMobilePane("chat");
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to start new session.";
@@ -1772,37 +1733,6 @@ const AgentStudioPage = () => {
         setPendingExecApprovalsByAgentId,
         setUnscopedPendingExecApprovals,
         requestHistoryRefresh: (agentId) => loadAgentHistory(agentId),
-        onAllowResolved: ({ approval, targetAgentId }) => {
-          const scopedPending = (pendingExecApprovalsByAgentId[targetAgentId] ?? []).some(
-            (pendingApproval) => pendingApproval.id !== approval.id
-          );
-          const targetSessionKey = approval.sessionKey?.trim() ?? "";
-          const unscopedPending = unscopedPendingExecApprovals.some((pendingApproval) => {
-            if (pendingApproval.id === approval.id) return false;
-            const pendingAgentId = pendingApproval.agentId?.trim() ?? "";
-            if (pendingAgentId && pendingAgentId === targetAgentId) return true;
-            if (!targetSessionKey) return false;
-            return (pendingApproval.sessionKey?.trim() ?? "") === targetSessionKey;
-          });
-          if (scopedPending || unscopedPending) return;
-          const latest =
-            stateRef.current.agents.find((entry) => entry.agentId === targetAgentId) ?? null;
-          if (!latest) return;
-          const pausedRunId =
-            approvalPausedRunIdByAgentRef.current.get(targetAgentId)?.trim() ?? "";
-          const nowMs = Date.now();
-          dispatch({
-            type: "updateAgent",
-            agentId: targetAgentId,
-            patch: {
-              status: "running",
-              sessionCreated: true,
-              lastActivityAt: nowMs,
-              ...(pausedRunId ? { runId: pausedRunId } : {}),
-              ...(latest.runStartedAt === null ? { runStartedAt: nowMs } : {}),
-            },
-          });
-        },
         onAllowed: async ({ approval, targetAgentId }) => {
           const pausedByAgent = approvalPausedRunIdByAgentRef.current;
           const pausedRunId = pausedByAgent.get(targetAgentId) ?? null;
@@ -1824,8 +1754,18 @@ const AgentStudioPage = () => {
           }
 
           pausedByAgent.delete(targetAgentId);
+          const nowMs = Date.now();
+          dispatch({
+            type: "updateAgent",
+            agentId: targetAgentId,
+            patch: {
+              status: "running",
+              runId: pausedRunId,
+              lastActivityAt: nowMs,
+            },
+          });
           try {
-            await client.call("agent.wait", { runId: pausedRunId, timeoutMs: 15_000 });
+            await client.call("agent.wait", { runId: pausedRunId, timeoutMs: EXEC_APPROVAL_AUTO_RESUME_WAIT_TIMEOUT_MS });
           } catch (waitError) {
             if (!isGatewayDisconnectLikeError(waitError)) {
               console.warn("Failed waiting for paused run before auto-resume.", waitError);
@@ -1833,7 +1773,11 @@ const AgentStudioPage = () => {
           }
 
           const latest = stateRef.current.agents.find((entry) => entry.agentId === targetAgentId) ?? null;
-          if (!latest || latest.status === "running") return;
+          if (!latest) return;
+          const latestRunId = latest.runId?.trim() ?? "";
+          if (latest.status === "running" && latestRunId && latestRunId !== pausedRunId) {
+            return;
+          }
           const sessionKey = latest.sessionKey.trim();
           if (!sessionKey) return;
 
@@ -2124,7 +2068,10 @@ const AgentStudioPage = () => {
           });
           await loadAgents();
           await refreshGatewayConfigSnapshot();
-          setSettingsAgentId(resolvedAgentId);
+          setInspectSidebar((current) => {
+            if (current?.agentId === resolvedAgentId) return current;
+            return { agentId: resolvedAgentId, tab: "capabilities" };
+          });
           setMobilePane("settings");
         },
       });
@@ -2342,7 +2289,7 @@ const AgentStudioPage = () => {
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 xl:flex-row">
           <div className="glass-panel ui-panel p-2 xl:hidden" data-testid="mobile-pane-toggle">
-            <div className="ui-segment grid-cols-4">
+            <div className="ui-segment grid-cols-3">
               <button
                 type="button"
                 className="ui-segment-item px-2 py-2 font-mono text-[12px] font-medium tracking-[0.02em]"
@@ -2363,23 +2310,13 @@ const AgentStudioPage = () => {
                 type="button"
                 className="ui-segment-item px-2 py-2 font-mono text-[12px] font-medium tracking-[0.02em]"
                 data-active={mobilePane === "settings" ? "true" : "false"}
-                onClick={() => setMobilePane("settings")}
-                disabled={!settingsAgent}
+                onClick={() => {
+                  if (!focusedAgent) return;
+                  handleOpenAgentPersonality(focusedAgent.agentId);
+                }}
+                disabled={!focusedAgent}
               >
                 Settings
-              </button>
-              <button
-                type="button"
-                className="ui-segment-item px-2 py-2 font-mono text-[12px] font-medium tracking-[0.02em]"
-                data-active={mobilePane === "brain" ? "true" : "false"}
-                onClick={() => {
-                  setBrainPanelOpen(true);
-                  setSettingsAgentId(null);
-                  setMobilePane("brain");
-                }}
-                disabled={!hasAnyAgents}
-              >
-                Brain
               </button>
             </div>
           </div>
@@ -2399,6 +2336,9 @@ const AgentStudioPage = () => {
               onSelectAgent={(agentId) => {
                 flushPendingDraft(focusedAgent?.agentId ?? null);
                 dispatch({ type: "selectAgent", agentId });
+                setInspectSidebar((current) =>
+                  current ? { ...current, agentId } : current
+                );
                 setMobilePane("chat");
               }}
             />
@@ -2418,8 +2358,8 @@ const AgentStudioPage = () => {
                     stopBusy={stopBusyAgentId === focusedAgent.agentId}
                     stopDisabledReason={focusedAgentStopDisabledReason}
                     onLoadMoreHistory={() => loadMoreAgentHistory(focusedAgent.agentId)}
-                    onOpenSettings={() => handleOpenAgentSettings(focusedAgent.agentId)}
-                    onOpenBrain={() => handleOpenAgentBrain(focusedAgent.agentId)}
+                    onOpenSettings={() => handleOpenAgentPersonality(focusedAgent.agentId)}
+                    onNewSession={() => handleNewSession(focusedAgent.agentId)}
                     onModelChange={(value) =>
                       handleModelChange(focusedAgent.agentId, focusedAgent.sessionKey, value)
                     }
@@ -2454,67 +2394,97 @@ const AgentStudioPage = () => {
               />
             )}
           </div>
-          {brainPanelOpen ? (
+          {inspectSidebarAgent ? (
             <div
-              className={`${mobilePane === "brain" ? "block" : "hidden"} sidebar-shell glass-panel ui-panel ui-depth-sidepanel min-h-0 w-full shrink-0 overflow-hidden p-0 xl:block xl:min-w-[360px] xl:max-w-[430px]`}
+              className={`${mobilePane === "settings" ? "block" : "hidden"} sidebar-shell glass-panel ui-panel ui-depth-sidepanel flex min-h-0 w-full shrink-0 flex-col overflow-hidden p-0 xl:flex xl:min-w-[468px] xl:max-w-[559px]`}
             >
-              <AgentBrainPanel
-                client={client}
-                agents={agents}
-                selectedAgentId={selectedBrainAgentId}
-                onClose={() => {
-                  setBrainPanelOpen(false);
-                  setMobilePane("chat");
-                }}
-              />
-            </div>
-          ) : null}
-          {settingsAgent ? (
-            <div
-              className={`${mobilePane === "settings" ? "block" : "hidden"} sidebar-shell glass-panel ui-panel ui-depth-sidepanel min-h-0 w-full shrink-0 overflow-hidden p-0 xl:block xl:min-w-[360px] xl:max-w-[430px]`}
-            >
-              <AgentSettingsPanel
-                key={settingsAgent.agentId}
-                agent={settingsAgent}
-                onClose={() => {
-                  setSettingsAgentId(null);
-                  setMobilePane("chat");
-                }}
-                onRename={(name) => handleRenameAgent(settingsAgent.agentId, name)}
-                permissionsDraft={settingsAgentPermissionsDraft ?? undefined}
-                onUpdateAgentPermissions={(draft) =>
-                  handleUpdateAgentPermissions(settingsAgent.agentId, draft)
-                }
-                onNewSession={() => handleNewSession(settingsAgent.agentId)}
-                onDelete={() => handleDeleteAgent(settingsAgent.agentId)}
-                canDelete={settingsAgent.agentId !== RESERVED_MAIN_AGENT_ID}
-                onToolCallingToggle={(enabled) =>
-                  handleToolCallingToggle(settingsAgent.agentId, enabled)
-                }
-                onThinkingTracesToggle={(enabled) =>
-                  handleThinkingTracesToggle(settingsAgent.agentId, enabled)
-                }
-                cronJobs={settingsCronJobs}
-                cronLoading={settingsCronLoading}
-                cronError={settingsCronError}
-                cronCreateBusy={cronCreateBusy}
-                cronRunBusyJobId={cronRunBusyJobId}
-                cronDeleteBusyJobId={cronDeleteBusyJobId}
-                onCreateCronJob={(draft) => handleCreateCronJob(settingsAgent.agentId, draft)}
-                onRunCronJob={(jobId) => handleRunCronJob(settingsAgent.agentId, jobId)}
-                onDeleteCronJob={(jobId) => handleDeleteCronJob(settingsAgent.agentId, jobId)}
-                heartbeats={settingsHeartbeats}
-                heartbeatLoading={settingsHeartbeatLoading}
-                heartbeatError={settingsHeartbeatError}
-                heartbeatRunBusyId={heartbeatRunBusyId}
-                heartbeatDeleteBusyId={heartbeatDeleteBusyId}
-                onRunHeartbeat={(heartbeatId) =>
-                  handleRunHeartbeat(settingsAgent.agentId, heartbeatId)
-                }
-                onDeleteHeartbeat={(heartbeatId) =>
-                  handleDeleteHeartbeat(settingsAgent.agentId, heartbeatId)
-                }
-              />
+              <div className="border-b border-border/60 px-3 py-3">
+                <div className="ui-segment grid-cols-4">
+                  {(
+                    [
+                      { id: "personality", label: "Personality" },
+                      { id: "capabilities", label: "Capabilities" },
+                      { id: "automations", label: "Automations" },
+                      { id: "advanced", label: "Advanced" },
+                    ] as const
+                  ).map((entry) => {
+                    const active = inspectSidebarTab === entry.id;
+                    return (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        className="ui-segment-item px-2 py-2 font-mono text-[11px] font-medium tracking-[0.02em]"
+                        data-active={active ? "true" : "false"}
+                        onClick={() =>
+                          setInspectSidebar((current) => {
+                            if (!current) {
+                              return { agentId: inspectSidebarAgent.agentId, tab: entry.id };
+                            }
+                            if (current.tab === entry.id) return current;
+                            return { ...current, tab: entry.id };
+                          })
+                        }
+                      >
+                        {entry.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="min-h-0 flex-1">
+                {inspectSidebarTab === "personality" ? (
+                  <AgentBrainPanel
+                    client={client}
+                    agents={agents}
+                    selectedAgentId={inspectSidebarAgent.agentId}
+                    onRename={(name) => handleRenameAgent(inspectSidebarAgent.agentId, name)}
+                    onClose={() => {
+                      setInspectSidebar(null);
+                      setMobilePane("chat");
+                    }}
+                  />
+                ) : (
+                  <AgentSettingsPanel
+                    key={`${inspectSidebarAgent.agentId}:${inspectSidebarTab ?? "capabilities"}`}
+                    mode={
+                      inspectSidebarTab === "automations"
+                        ? "automations"
+                        : inspectSidebarTab === "advanced"
+                          ? "advanced"
+                          : "capabilities"
+                    }
+                    agent={inspectSidebarAgent}
+                    onClose={() => {
+                      setInspectSidebar(null);
+                      setMobilePane("chat");
+                    }}
+                    permissionsDraft={settingsAgentPermissionsDraft ?? undefined}
+                    onUpdateAgentPermissions={(draft) =>
+                      handleUpdateAgentPermissions(inspectSidebarAgent.agentId, draft)
+                    }
+                    onDelete={() => handleDeleteAgent(inspectSidebarAgent.agentId)}
+                    canDelete={inspectSidebarAgent.agentId !== RESERVED_MAIN_AGENT_ID}
+                    onToolCallingToggle={(enabled) =>
+                      handleToolCallingToggle(inspectSidebarAgent.agentId, enabled)
+                    }
+                    onThinkingTracesToggle={(enabled) =>
+                      handleThinkingTracesToggle(inspectSidebarAgent.agentId, enabled)
+                    }
+                    cronJobs={settingsCronJobs}
+                    cronLoading={settingsCronLoading}
+                    cronError={settingsCronError}
+                    cronCreateBusy={cronCreateBusy}
+                    cronRunBusyJobId={cronRunBusyJobId}
+                    cronDeleteBusyJobId={cronDeleteBusyJobId}
+                    onCreateCronJob={(draft) => handleCreateCronJob(inspectSidebarAgent.agentId, draft)}
+                    onRunCronJob={(jobId) => handleRunCronJob(inspectSidebarAgent.agentId, jobId)}
+                    onDeleteCronJob={(jobId) =>
+                      handleDeleteCronJob(inspectSidebarAgent.agentId, jobId)
+                    }
+                    controlUiUrl={controlUiUrl}
+                  />
+                )}
+              </div>
             </div>
           ) : null}
         </div>
