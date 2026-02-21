@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, Loader2 } from "lucide-react";
 import type { GatewayStatus } from "@/lib/gateway/GatewayClient";
 import { isLocalGatewayUrl } from "@/lib/gateway/local-gateway";
 import type { StudioGatewaySettings } from "@/lib/studio/settings";
@@ -37,8 +37,6 @@ export const GatewayConnectScreen = ({
   onConnect,
 }: GatewayConnectScreenProps) => {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
-  const [remoteExpanded, setRemoteExpanded] = useState(false);
-  const [localExpanded, setLocalExpanded] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const isLocal = useMemo(() => isLocalGatewayUrl(gatewayUrl), [gatewayUrl]);
   const localPort = useMemo(() => resolveLocalGatewayPort(gatewayUrl), [gatewayUrl]);
@@ -62,7 +60,6 @@ export const GatewayConnectScreen = ({
     }
     return "Not connected to a gateway.";
   }, [isLocal, localPort, status]);
-  const hidePaths = status === "connecting" && isLocal;
   const connectDisabled = status === "connecting";
   const connectLabel = connectDisabled ? "Connecting…" : "Connect";
   const statusDotClass =
@@ -84,8 +81,8 @@ export const GatewayConnectScreen = ({
   };
 
   const commandField = (
-      <div className="space-y-1.5">
-        <div className="ui-command-surface flex items-center gap-2 rounded-md px-3 py-2">
+    <div className="space-y-1.5">
+      <div className="ui-command-surface flex items-center gap-2 rounded-md px-3 py-2">
         <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px]">
           {localGatewayCommand}
         </code>
@@ -130,7 +127,6 @@ export const GatewayConnectScreen = ({
         <p>
           URL: <span className="font-mono">wss://&lt;your-tailnet-host&gt;</span>
         </p>
-        <p>Token: your gateway token</p>
       </div>
 
       <label className="flex flex-col gap-1 text-[11px] font-medium text-foreground/80">
@@ -158,7 +154,6 @@ export const GatewayConnectScreen = ({
           </button>
         </div>
       </label>
-      <p className="text-xs text-muted-foreground">Keep this token secret.</p>
 
       <button
         type="button"
@@ -194,95 +189,48 @@ export const GatewayConnectScreen = ({
         </div>
       </div>
 
-      {hidePaths ? null : isLocal ? (
-        <>
-          <div className="ui-card px-4 py-4 sm:px-6 sm:py-5">
-            <div className="space-y-1.5">
-              <p className="font-mono text-[10px] font-semibold tracking-[0.06em] text-muted-foreground">
-                Local gateway
-              </p>
-              <p className="text-sm text-foreground/85">
-                Run locally, or connect to a remote gateway.
-              </p>
-            </div>
-            {commandField}
-            <button
-              type="button"
-              className="ui-btn-primary h-11 w-full px-4 text-xs font-semibold tracking-[0.05em] disabled:cursor-not-allowed disabled:opacity-60"
-              onClick={onConnect}
-              disabled={connectDisabled}
-            >
-              {connectLabel}
-            </button>
-            {status === "connecting" ? (
-              <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Connecting…
-              </p>
-            ) : null}
-            {error ? <p className="ui-text-danger text-xs leading-snug">{error}</p> : null}
-          </div>
+      <div className="ui-card px-4 py-5 sm:px-6">
+        <div>
+          <p className="font-mono text-[10px] font-medium tracking-[0.06em] text-muted-foreground">
+            Remote gateway (recommended)
+          </p>
+          <p className="mt-2 text-sm text-foreground/85">Default: enter your URL and token to connect.</p>
+        </div>
+        {remoteForm}
+      </div>
 
-          <div className="ui-card px-4 py-3.5 sm:px-6 sm:py-4">
-            <button
-              type="button"
-              className="ui-btn-secondary flex h-9 w-full items-center justify-between px-3 py-2 text-left font-mono text-[10px] font-medium tracking-[0.06em] text-muted-foreground"
-              onClick={() => setRemoteExpanded((prev) => !prev)}
-            >
-              Remote Gateway
-              {remoteExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            </button>
-            {remoteExpanded ? remoteForm : null}
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="ui-card px-4 py-5 sm:px-6">
-            <div>
-              <p className="font-mono text-[10px] font-medium tracking-[0.06em] text-muted-foreground">
-                Remote gateway
-              </p>
-              <p className="mt-2 text-sm text-foreground/85">Enter your URL and token to connect.</p>
-            </div>
-            {remoteForm}
-          </div>
-
-          <div className="ui-card px-4 py-3.5 sm:px-6 sm:py-4">
-            <button
-              type="button"
-              className="ui-btn-secondary flex h-9 w-full items-center justify-between px-3 py-2 text-left font-mono text-[10px] font-medium tracking-[0.06em] text-muted-foreground"
-              onClick={() => setLocalExpanded((prev) => !prev)}
-            >
-              Run Locally
-              {localExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            </button>
-            {localExpanded ? (
-              <div className="mt-3 space-y-3">
-                {commandField}
-                {localGatewayDefaults ? (
-                  <div className="ui-input rounded-md px-3 py-3">
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">
-                        Use token from <span className="font-mono">~/.openclaw/openclaw.json</span>.
-                      </p>
-                      <p className="font-mono text-[11px] text-foreground/85">
-                        {localGatewayDefaults.url}
-                      </p>
-                      <button
-                        type="button"
-                        className="ui-btn-secondary h-9 w-full px-3 text-xs font-semibold tracking-[0.05em] text-foreground"
-                        onClick={onUseLocalDefaults}
-                      >
-                        Use local defaults
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
+      <div className="ui-card px-4 py-4 sm:px-6 sm:py-5">
+        <div className="space-y-1.5">
+          <p className="font-mono text-[10px] font-semibold tracking-[0.06em] text-muted-foreground">
+            Run locally (optional)
+          </p>
+          <p className="text-sm text-foreground/85">
+            Start a local gateway process on this machine, then connect.
+          </p>
+        </div>
+        <div className="mt-3 space-y-3">
+          {commandField}
+          {localGatewayDefaults ? (
+            <div className="ui-input rounded-md px-3 py-3">
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Use token from <span className="font-mono">~/.openclaw/openclaw.json</span>.
+                </p>
+                <p className="font-mono text-[11px] text-foreground/85">
+                  {localGatewayDefaults.url}
+                </p>
+                <button
+                  type="button"
+                  className="ui-btn-secondary h-9 w-full px-3 text-xs font-semibold tracking-[0.05em] text-foreground"
+                  onClick={onUseLocalDefaults}
+                >
+                  Use local defaults
+                </button>
               </div>
-            ) : null}
-          </div>
-        </>
-      )}
+            </div>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 };
