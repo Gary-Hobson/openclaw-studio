@@ -10,6 +10,7 @@ import {
 } from "@/lib/controlplane/exec-approvals";
 import { ControlPlaneGatewayError } from "@/lib/controlplane/openclaw-adapter";
 import type { ControlPlaneRuntime } from "@/lib/controlplane/runtime";
+import { getRequestScope, assertAgentAccess, assertPermission } from "@/lib/controlplane/scope";
 
 export const runtime = "nodejs";
 
@@ -240,6 +241,17 @@ export async function POST(request: Request) {
   const agentId = typeof bodyOrError.agentId === "string" ? bodyOrError.agentId.trim() : "";
   const sessionKey =
     typeof bodyOrError.sessionKey === "string" ? bodyOrError.sessionKey.trim() : "";
+
+  if (!agentId || !sessionKey) {
+    return NextResponse.json({ error: "agentId and sessionKey are required." }, { status: 400 });
+  }
+
+  const scope = getRequestScope(request);
+  const accessError = assertAgentAccess(scope, agentId);
+  if (accessError) return accessError;
+  const permError = assertPermission(scope, "manage");
+  if (permError) return permError;
+
   const commandMode =
     typeof bodyOrError.commandMode === "string" ? bodyOrError.commandMode.trim() : "";
   const webAccess = typeof bodyOrError.webAccess === "boolean" ? bodyOrError.webAccess : null;

@@ -1208,6 +1208,12 @@ textarea:focus::-webkit-scrollbar {
   color: var(--status-approval-fg);
 }
 
+.ui-badge-shared {
+  border: 1px solid var(--status-connected-border);
+  background: var(--status-connected-bg);
+  color: var(--status-connected-fg);
+}
+
 .ui-btn-danger {
   border: 1px solid var(--danger-soft-border);
   background: var(--danger-soft-bg);

@@ -7,6 +7,10 @@ import type {
 } from "@/lib/studio/settings";
 import type { StudioInstallContext } from "@/lib/studio/install-context";
 
+export type SharedMode =
+  | { active: false }
+  | { active: true; agentId: string; permissions: string[] };
+
 export type StudioSettingsResponse = {
   settings: StudioSettings;
   localGatewayDefaults?: StudioGatewaySettings | null;
@@ -18,6 +22,7 @@ export type StudioSettingsResponse = {
   };
   installContext?: StudioInstallContext;
   domainApiModeEnabled?: boolean;
+  sharedMode?: SharedMode;
   runtimeReconnect?: {
     attempted: boolean;
     restarted: boolean;

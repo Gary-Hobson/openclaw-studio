@@ -1,6 +1,7 @@
 import type { ControlPlaneOutboxEntry } from "@/lib/controlplane/contracts";
 import { serializeRuntimeInitFailure } from "@/lib/controlplane/runtime-init-errors";
 import { bootstrapDomainRuntime } from "@/lib/controlplane/runtime-route-bootstrap";
+import { getRequestScope, isOwner, extractAgentIdFromSessionKey } from "@/lib/controlplane/scope";
 
 export const runtime = "nodejs";
 
@@ -33,6 +34,37 @@ const toSseFrame = (entry: ControlPlaneOutboxEntry): Uint8Array => {
 
 const heartbeatFrame = (): Uint8Array => encoder.encode(": heartbeat\n\n");
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === "object");
+
+const resolveAgentIdFromEntry = (entry: ControlPlaneOutboxEntry): string | null => {
+  if (entry.event.type === "runtime.status") return null;
+  if (entry.event.type !== "gateway.event") return null;
+  const payload = entry.event.payload;
+  if (!isRecord(payload)) return null;
+  const directAgentId =
+    typeof payload.agentId === "string" ? payload.agentId.trim().toLowerCase() : "";
+  if (directAgentId) return directAgentId;
+  const sessionKey =
+    typeof payload.sessionKey === "string" ? payload.sessionKey : (
+    typeof payload.key === "string" ? payload.key : (
+    typeof payload.runSessionKey === "string" ? payload.runSessionKey : ""));
+  return extractAgentIdFromSessionKey(sessionKey);
+};
+
+const isEntryAllowedForScope = (
+  entry: ControlPlaneOutboxEntry,
+  scopeAgentId: string | null
+): boolean => {
+  if (!scopeAgentId) return true; // owner — allow all
+  // Always allow runtime.status events (connection state)
+  if (entry.event.type === "runtime.status") return true;
+  const entryAgentId = resolveAgentIdFromEntry(entry);
+  // If we can't determine agent, allow (to not break generic events)
+  if (!entryAgentId) return true;
+  return entryAgentId === scopeAgentId;
+};
+
 export async function GET(request: Request) {
   const bootstrap = await bootstrapDomainRuntime();
   if (bootstrap.kind === "mode-disabled") {
@@ -61,6 +93,10 @@ export async function GET(request: Request) {
   }
   const controlPlane = bootstrap.runtime;
   const lastSeenId = parseLastEventIdFromRequest(request);
+  const scope = getRequestScope(request);
+  const scopeAgentId = !isOwner(scope) && scope.role === "shared"
+    ? scope.agentId.trim().toLowerCase()
+    : null;
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -97,6 +133,11 @@ export async function GET(request: Request) {
       };
       const emitEntry = (entry: ControlPlaneOutboxEntry): boolean => {
         if (entry.id <= lastDeliveredId) {
+          return true;
+        }
+        if (!isEntryAllowedForScope(entry, scopeAgentId)) {
+          // Skip but update cursor so we don't re-process
+          lastDeliveredId = entry.id;
           return true;
         }
         if (!enqueueFrame(toSseFrame(entry))) {

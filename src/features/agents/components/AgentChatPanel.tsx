@@ -14,7 +14,7 @@ import {
 import type { AgentState as AgentRecord } from "@/features/agents/state/store";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, ChevronRight, Clock, Cog, Maximize2, Pencil, Shuffle, Trash2, X } from "lucide-react";
+import { Check, ChevronRight, Clock, Cog, Loader2, Maximize2, Paperclip, Pencil, Shuffle, Trash2, X } from "lucide-react";
 import type { GatewayModelChoice } from "@/lib/gateway/models";
 import { rewriteMediaLinesToMarkdown } from "@/lib/text/media-markdown";
 import { normalizeAssistantDisplayText } from "@/lib/text/assistantText";
@@ -42,6 +42,8 @@ import {
   buildChatFirstPaintCycleKey,
   resolveChatFirstPaint,
 } from "@/features/agents/operations/chatFirstPaintWorkflow";
+import { useFileUpload, buildMessageWithFiles } from "@/features/agents/operations/useFileUpload";
+import type { UploadedFile } from "@/features/agents/operations/useFileUpload";
 
 const formatChatTimestamp = (timestampMs: number): string => {
   return new Intl.DateTimeFormat(undefined, {
@@ -997,6 +999,12 @@ const AgentChatComposer = memo(function AgentChatComposer({
   showThinkingTraces,
   onToolCallingToggle,
   onThinkingTracesToggle,
+  uploadedFiles,
+  uploading,
+  uploadError,
+  onFileSelect,
+  onRemoveFile,
+  onClearUploadError,
 }: {
   value: string;
   onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
@@ -1021,10 +1029,64 @@ const AgentChatComposer = memo(function AgentChatComposer({
   showThinkingTraces: boolean;
   onToolCallingToggle: (enabled: boolean) => void;
   onThinkingTracesToggle: (enabled: boolean) => void;
+  uploadedFiles: UploadedFile[];
+  uploading: boolean;
+  uploadError: string | null;
+  onFileSelect: (files: FileList) => void;
+  onRemoveFile: (fileId: string) => void;
+  onClearUploadError: () => void;
 }) {
   const stopReason = stopDisabledReason?.trim() ?? "";
   const stopDisabled = !canSend || stopBusy || Boolean(stopReason);
   const stopAriaLabel = stopReason ? `Stop unavailable: ${stopReason}` : "Stop";
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length === 0) return;
+    e.preventDefault();
+    const dt = new DataTransfer();
+    for (const f of imageFiles) dt.items.add(f);
+    onFileSelect(dt.files);
+  }, [onFileSelect]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    if (e.dataTransfer.files.length > 0) {
+      onFileSelect(e.dataTransfer.files);
+    }
+  }, [onFileSelect]);
+
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      onFileSelect(e.target.files);
+      e.target.value = "";
+    }
+  }, [onFileSelect]);
   const modelSelectedLabel = useMemo(() => {
     if (modelOptions.length === 0) return "No models found";
     return modelOptions.find((option) => option.value === modelValue)?.label ?? modelValue;
@@ -1050,7 +1112,20 @@ const AgentChatComposer = memo(function AgentChatComposer({
   }, [thinkingValue]);
   const thinkingSelectWidthCh = Math.max(9, Math.min(16, thinkingSelectedLabel.length + 6));
   return (
-    <div className="w-full max-w-full overflow-hidden rounded-2xl border border-border/65 bg-surface-2/45 px-3 py-2">
+    <div
+      className={`w-full max-w-full overflow-hidden rounded-2xl border bg-surface-2/45 px-3 py-2 transition-colors ${dragOver ? "border-ring bg-accent/20" : "border-border/65"}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileInputChange}
+        aria-label="Upload files"
+      />
       {queuedMessages.length > 0 ? (
         <div
           className={`mb-2 grid items-start gap-2 ${
@@ -1110,7 +1185,67 @@ const AgentChatComposer = memo(function AgentChatComposer({
           </button>
         </div>
       ) : null}
+      {uploadedFiles.length > 0 || uploadError ? (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {uploadedFiles.map((file) => (
+            <div
+              key={file.id}
+              className="flex items-center gap-1 rounded-md border border-border/70 bg-card/80 px-2 py-1 text-[11px] text-foreground"
+            >
+              {file.previewUrl ? (
+                <img
+                  src={file.previewUrl}
+                  alt={file.filename}
+                  className="h-6 w-6 rounded object-cover"
+                />
+              ) : (
+                <Paperclip className="h-3 w-3 text-muted-foreground" />
+              )}
+              <span className="max-w-[120px] truncate">{file.filename}</span>
+              <button
+                type="button"
+                className="ml-0.5 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
+                onClick={() => onRemoveFile(file.id)}
+                aria-label={`Remove ${file.filename}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+          {uploadError ? (
+            <div className="flex items-center gap-1 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+              {uploadError}
+              <button
+                type="button"
+                className="ml-0.5 rounded-sm p-0.5"
+                onClick={onClearUploadError}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {dragOver ? (
+        <div className="mb-2 flex items-center justify-center rounded-lg border-2 border-dashed border-ring/50 py-4 text-sm text-muted-foreground">
+          Drop files here
+        </div>
+      ) : null}
       <div className="flex min-w-0 items-end gap-2">
+        <button
+          type="button"
+          className="mb-1 shrink-0 rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:opacity-50"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          aria-label="Attach file"
+          title="Attach file"
+        >
+          {uploading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Paperclip className="h-4 w-4" />
+          )}
+        </button>
         <textarea
           ref={inputRef}
           rows={1}
@@ -1118,6 +1253,7 @@ const AgentChatComposer = memo(function AgentChatComposer({
           className="chat-composer-input min-h-[28px] max-h-[34vh] min-w-0 flex-1 resize-none border-0 bg-transparent px-0 py-1 text-[16px] leading-6 text-foreground outline-none shadow-none transition placeholder:text-muted-foreground/65 focus:outline-none focus-visible:outline-none focus-visible:ring-0 sm:text-[15px]"
           onChange={onChange}
           onKeyDown={onKeyDown}
+          onPaste={handlePaste}
           placeholder="type a message"
         />
         {running ? (
@@ -1360,18 +1496,25 @@ export const AgentChatPanel = ({
     };
   }, [resizeDraft, draftValue]);
 
+  const fileUpload = useFileUpload(agent.agentId);
+
   const handleSend = useCallback(
     (message: string) => {
       if (!canSend) return;
       const trimmed = message.trim();
-      if (!trimmed) return;
+      const hasFiles = fileUpload.files.length > 0;
+      if (!trimmed && !hasFiles) return;
+      const finalMessage = hasFiles
+        ? buildMessageWithFiles(trimmed, fileUpload.files)
+        : trimmed;
       plainDraftRef.current = "";
       setDraftValue("");
       onDraftChange("");
       scrollToBottomNextOutputRef.current = true;
-      onSend(trimmed);
+      if (hasFiles) fileUpload.clearFiles();
+      onSend(finalMessage);
     },
-    [canSend, onDraftChange, onSend]
+    [canSend, fileUpload, onDraftChange, onSend]
   );
 
   const visibleTranscriptEntries = useMemo(
@@ -1484,7 +1627,7 @@ export const AgentChatPanel = ({
     () => resolveEmptyChatIntroMessage(agent.agentId, agent.sessionEpoch),
     [agent.agentId, agent.sessionEpoch]
   );
-  const sendDisabled = !canSend || !draftValue.trim();
+  const sendDisabled = !canSend || (!draftValue.trim() && fileUpload.files.length === 0);
 
   const handleComposerChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -1510,6 +1653,13 @@ export const AgentChatPanel = ({
   const handleComposerSend = useCallback(() => {
     handleSend(draftValue);
   }, [draftValue, handleSend]);
+
+  const handleFileSelect = useCallback(
+    (files: FileList) => {
+      void fileUpload.uploadFiles(files);
+    },
+    [fileUpload]
+  );
 
   const beginRename = useCallback(() => {
     if (!onRename) return;
@@ -1787,6 +1937,12 @@ export const AgentChatPanel = ({
             showThinkingTraces={agent.showThinkingTraces}
             onToolCallingToggle={onToolCallingToggle}
             onThinkingTracesToggle={onThinkingTracesToggle}
+            uploadedFiles={fileUpload.files}
+            uploading={fileUpload.uploading}
+            uploadError={fileUpload.error}
+            onFileSelect={handleFileSelect}
+            onRemoveFile={fileUpload.removeFile}
+            onClearUploadError={fileUpload.clearError}
           />
         </div>
       </div>

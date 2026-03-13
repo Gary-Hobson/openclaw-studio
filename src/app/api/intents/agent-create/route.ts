@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { ensureDomainIntentRuntime, parseIntentBody } from "@/lib/controlplane/intent-route";
 import { ControlPlaneGatewayError } from "@/lib/controlplane/openclaw-adapter";
 import { slugifyAgentName } from "@/lib/gateway/agentConfig";
+import { getRequestScope, assertOwnerAccess } from "@/lib/controlplane/scope";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,10 @@ const joinPathLike = (dir: string, leaf: string): string => {
 };
 
 export async function POST(request: Request) {
+  const scope = getRequestScope(request);
+  const ownerError = assertOwnerAccess(scope);
+  if (ownerError) return ownerError;
+
   const bodyOrError = await parseIntentBody(request);
   if (bodyOrError instanceof Response) {
     return bodyOrError as NextResponse;

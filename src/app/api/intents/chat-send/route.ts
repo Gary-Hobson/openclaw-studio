@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { executeGatewayIntent, parseIntentBody } from "@/lib/controlplane/intent-route";
+import { getRequestScope, assertAgentAccess, extractAgentIdFromSessionKey } from "@/lib/controlplane/scope";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,13 @@ export async function POST(request: Request) {
       { error: "sessionKey, message, and idempotencyKey are required." },
       { status: 400 }
     );
+  }
+
+  const scope = getRequestScope(request);
+  const agentId = extractAgentIdFromSessionKey(sessionKey);
+  if (agentId) {
+    const accessError = assertAgentAccess(scope, agentId);
+    if (accessError) return accessError;
   }
 
   return await executeGatewayIntent("chat.send", {

@@ -1,12 +1,15 @@
 process.env.WS_NO_BUFFER_UTIL = process.env.WS_NO_BUFFER_UTIL || "1";
 process.env.WS_NO_UTF_8_VALIDATE = process.env.WS_NO_UTF_8_VALIDATE || "1";
 
+const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const crypto = require("node:crypto");
 const next = require("next");
 
 const { createAccessGate } = require("./access-gate");
+const { createShareStore } = require("./share-store");
 const { detectInstallContext, buildStartupGuidance } = require("./install-context");
 const { assertPublicHostAllowed, resolveHosts } = require("./network-policy");
 
@@ -45,6 +48,68 @@ async function main() {
     });
   }
 
+  // ---- Admin token: persist across restarts, only regenerate with --new-token ----
+  const configuredToken = (process.env.STUDIO_ACCESS_TOKEN ?? "").trim();
+  const forceNewToken = process.argv.includes("--new-token");
+
+  if (!configuredToken) {
+    const { resolveStudioSettingsPath } = require("./studio-settings");
+    const settingsPath = resolveStudioSettingsPath(process.env);
+    let existingToken = "";
+
+    // Try to load persisted token from settings
+    if (!forceNewToken) {
+      try {
+        if (fs.existsSync(settingsPath)) {
+          const raw = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+          existingToken = (raw && typeof raw === "object" && typeof raw.adminToken === "string")
+            ? raw.adminToken.trim()
+            : "";
+        }
+      } catch {}
+    }
+
+    const adminToken = existingToken || crypto.randomBytes(24).toString("hex");
+    process.env.STUDIO_ACCESS_TOKEN = adminToken;
+
+    // Persist token to settings file
+    try {
+      const settingsDir = path.dirname(settingsPath);
+      if (!fs.existsSync(settingsDir)) {
+        fs.mkdirSync(settingsDir, { recursive: true });
+      }
+      let settings = {};
+      try {
+        if (fs.existsSync(settingsPath)) {
+          const raw = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+          if (raw && typeof raw === "object") settings = raw;
+        }
+      } catch {}
+      settings.adminToken = adminToken;
+      fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
+    } catch (err) {
+      console.warn("Failed to persist admin token to settings:", err.message);
+    }
+
+    const tokenLabel = forceNewToken
+      ? "Studio Admin Token (newly generated)"
+      : existingToken
+        ? "Studio Admin Token (from settings)"
+        : "Studio Admin Token (auto-generated)";
+
+    console.info("");
+    console.info(`  ${tokenLabel}:`);
+    console.info(`  ${adminToken}`);
+    console.info("");
+    if (!existingToken || forceNewToken) {
+      console.info("  Use this token to log in at the /login page.");
+      console.info("  Token is persisted. Use --new-token to regenerate.");
+    } else {
+      console.info("  Use --new-token to regenerate.");
+    }
+    console.info("");
+  }
+
   const app = next({
     dev,
     hostname,
@@ -53,8 +118,25 @@ async function main() {
   });
   const handle = app.getRequestHandler();
 
+  const shareStore = createShareStore();
+  // Expose share store globally for Next.js API routes to access
+  globalThis.__openclawStudioShareStore = shareStore;
+
+  // Revoke all share tokens when admin token is regenerated
+  if (forceNewToken) {
+    try {
+      const revoked = shareStore.revokeAllShareTokens();
+      if (revoked > 0) {
+        console.info(`Revoked ${revoked} existing share token(s) due to --new-token.`);
+      }
+    } catch (err) {
+      console.warn("Failed to revoke share tokens:", err.message);
+    }
+  }
+
   const accessGate = createAccessGate({
     token: process.env.STUDIO_ACCESS_TOKEN,
+    shareStore,
   });
 
   await app.prepare();
@@ -100,7 +182,11 @@ async function main() {
       : hostname;
 
   const browserUrl = `http://${hostForBrowser}:${port}`;
-  console.info(`Open in browser: ${browserUrl}`);
+  const adminToken = (process.env.STUDIO_ACCESS_TOKEN ?? "").trim();
+  const loginUrl = adminToken
+    ? `${browserUrl}?access_token=${adminToken}`
+    : browserUrl;
+  console.info(`Open in browser: ${loginUrl}`);
   try {
     const installContext = await detectInstallContext(process.env);
     const startupGuidance = buildStartupGuidance({

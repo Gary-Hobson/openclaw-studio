@@ -15,6 +15,7 @@ import {
   redactStudioSettingsSecrets,
 } from "@/lib/studio/settings-store";
 import { detectInstallContext } from "../../../../server/install-context";
+import { getRequestScope, isOwner } from "@/lib/controlplane/scope";
 
 export const runtime = "nodejs";
 
@@ -121,7 +122,10 @@ const reconnectRuntimeForGatewaySettingsChange = async (
   }
 };
 
-const buildSettingsResponseBody = async (metadata?: RuntimeReconnectMetadata | null) => {
+const buildSettingsResponseBody = async (
+  metadata?: RuntimeReconnectMetadata | null,
+  request?: Request
+) => {
   const settings = loadStudioSettings();
   const localGatewayDefaults = loadLocalGatewayDefaults();
   let installContext = defaultStudioInstallContext();
@@ -130,6 +134,17 @@ const buildSettingsResponseBody = async (metadata?: RuntimeReconnectMetadata | n
   } catch (error) {
     console.error("Failed to detect Studio install context.", error);
   }
+
+  // Resolve shared mode from request scope
+  let sharedMode: { active: false } | { active: true; agentId: string; permissions: string[] } =
+    { active: false };
+  if (request) {
+    const scope = getRequestScope(request);
+    if (!isOwner(scope) && scope.role === "shared") {
+      sharedMode = { active: true, agentId: scope.agentId, permissions: scope.permissions };
+    }
+  }
+
   return {
     settings: redactStudioSettingsSecrets(settings),
     localGatewayDefaults: redactLocalGatewayDefaultsSecrets(localGatewayDefaults),
@@ -141,13 +156,14 @@ const buildSettingsResponseBody = async (metadata?: RuntimeReconnectMetadata | n
     },
     installContext,
     domainApiModeEnabled: isStudioDomainApiModeEnabled(),
+    sharedMode,
     ...(metadata ? { runtimeReconnect: metadata } : {}),
   };
 };
 
-export async function GET() {
+export async function GET(request?: Request) {
   try {
-    return NextResponse.json(await buildSettingsResponseBody());
+    return NextResponse.json(await buildSettingsResponseBody(null, request));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to load studio settings.";
     console.error(message);
@@ -170,7 +186,7 @@ export async function PUT(request: Request) {
       previousSettings,
       nextSettings
     );
-    return NextResponse.json(await buildSettingsResponseBody(runtimeReconnect));
+    return NextResponse.json(await buildSettingsResponseBody(runtimeReconnect, request));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to save studio settings.";
     console.error(message);

@@ -2,7 +2,8 @@ export type SettingsRouteTab =
   | "personality"
   | "capabilities"
   | "automations"
-  | "advanced";
+  | "advanced"
+  | "sharing";
 
 export type InspectSidebarState =
   | { agentId: string; tab: SettingsRouteTab }

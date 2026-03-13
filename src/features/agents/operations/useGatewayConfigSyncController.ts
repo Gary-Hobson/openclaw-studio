@@ -16,6 +16,15 @@ const defaultLogError = (message: string, err: unknown) => {
   console.error(message, err);
 };
 
+const isOwnerOnlyError = (err: unknown): boolean => {
+  if (err instanceof Error) {
+    return err.message.includes("owner access") || err.message.includes("owner-only");
+  }
+  return false;
+};
+
+
+
 type UseGatewayConfigSyncControllerParams = {
   status: GatewayConnectionStatus;
   settingsRouteActive: boolean;
@@ -53,7 +62,8 @@ export function useGatewayConfigSyncController(
       setGatewayConfigSnapshot(snapshot);
       return snapshot;
     } catch (err) {
-      if (!isDisconnectLikeError(err)) {
+      // Silently ignore owner-only access errors (shared users)
+      if (!isDisconnectLikeError(err) && !isOwnerOnlyError(err)) {
         logError("Failed to refresh gateway config.", err);
       }
       return null;
@@ -91,7 +101,8 @@ export function useGatewayConfigSyncController(
           setGatewayConfigSnapshot(configSnapshot);
         }
       } catch (err) {
-        if (!isDisconnectLikeError(err)) {
+        // Silently ignore owner-only access errors (shared users)
+        if (!isDisconnectLikeError(err) && !isOwnerOnlyError(err)) {
           logError("Failed to load gateway config.", err);
         }
       }

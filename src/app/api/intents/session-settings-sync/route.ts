@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { executeGatewayIntent, parseIntentBody } from "@/lib/controlplane/intent-route";
+import { getRequestScope, assertAgentAccess, extractAgentIdFromSessionKey } from "@/lib/controlplane/scope";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,13 @@ export async function POST(request: Request) {
     typeof bodyOrError.sessionKey === "string" ? bodyOrError.sessionKey.trim() : "";
   if (!sessionKey) {
     return NextResponse.json({ error: "sessionKey is required." }, { status: 400 });
+  }
+
+  const scope = getRequestScope(request);
+  const agentId = extractAgentIdFromSessionKey(sessionKey);
+  if (agentId) {
+    const accessError = assertAgentAccess(scope, agentId);
+    if (accessError) return accessError;
   }
 
   const includeModel = hasOwn(bodyOrError, "model");

@@ -5,6 +5,7 @@ import { ControlPlaneGatewayError } from "@/lib/controlplane/openclaw-adapter";
 import { serializeRuntimeInitFailure } from "@/lib/controlplane/runtime-init-errors";
 import { bootstrapDomainRuntime } from "@/lib/controlplane/runtime-route-bootstrap";
 import { extractText, stripUiMetadata } from "@/lib/text/message-extract";
+import { getRequestScope, assertAgentAccess } from "@/lib/controlplane/scope";
 
 export const runtime = "nodejs";
 
@@ -127,6 +128,10 @@ export async function GET(
   if (!normalizedAgentId) {
     return NextResponse.json({ error: "agentId is required." }, { status: 400 });
   }
+
+  const scope = getRequestScope(request);
+  const accessError = assertAgentAccess(scope, normalizedAgentId);
+  if (accessError) return accessError;
 
   const url = new URL(request.url);
   const sessionKeyRaw = (url.searchParams.get("sessionKey") ?? "").trim();

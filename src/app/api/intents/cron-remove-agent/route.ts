@@ -4,6 +4,7 @@ import { ensureDomainIntentRuntime, parseIntentBody } from "@/lib/controlplane/i
 import { ControlPlaneGatewayError } from "@/lib/controlplane/openclaw-adapter";
 import type { CronDelivery, CronJobRestoreInput, CronPayload, CronSchedule } from "@/lib/cron/types";
 import type { ControlPlaneRuntime } from "@/lib/controlplane/runtime";
+import { getRequestScope, assertAgentAccess, assertPermission } from "@/lib/controlplane/scope";
 
 export const runtime = "nodejs";
 
@@ -120,6 +121,8 @@ const mapIntentError = (error: unknown): NextResponse => {
 };
 
 export async function POST(request: Request) {
+  const scope = getRequestScope(request);
+
   const bodyOrError = await parseIntentBody(request);
   if (bodyOrError instanceof Response) {
     return bodyOrError as NextResponse;
@@ -129,6 +132,11 @@ export async function POST(request: Request) {
   if (!agentId) {
     return NextResponse.json({ error: "agentId is required." }, { status: 400 });
   }
+
+  const agentError = assertAgentAccess(scope, agentId);
+  if (agentError) return agentError;
+  const permError = assertPermission(scope, "manage");
+  if (permError) return permError;
 
   const runtimeOrError = await ensureDomainIntentRuntime();
   if (runtimeOrError instanceof Response) {

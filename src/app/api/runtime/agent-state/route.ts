@@ -11,6 +11,7 @@ import {
   trashAgentStateOverSsh,
 } from "@/lib/ssh/agent-state";
 import { loadStudioSettings } from "@/lib/studio/settings-store";
+import { getRequestScope, assertAgentAccess, assertPermission } from "@/lib/controlplane/scope";
 
 export const runtime = "nodejs";
 
@@ -36,6 +37,7 @@ const resolveAgentStateSshTarget = (): string | null => {
 
 export async function POST(request: Request) {
   try {
+    const scope = getRequestScope(request);
     const body = (await request.json()) as unknown;
     if (!body || typeof body !== "object") {
       return NextResponse.json({ error: "Invalid request payload." }, { status: 400 });
@@ -45,6 +47,10 @@ export async function POST(request: Request) {
     if (!trimmed) {
       return NextResponse.json({ error: "agentId is required." }, { status: 400 });
     }
+    const agentError = assertAgentAccess(scope, trimmed);
+    if (agentError) return agentError;
+    const permError = assertPermission(scope, "manage");
+    if (permError) return permError;
     if (!isSafeAgentId(trimmed)) {
       return NextResponse.json({ error: `Invalid agentId: ${trimmed}` }, { status: 400 });
     }
@@ -64,6 +70,7 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    const scope = getRequestScope(request);
     const body = (await request.json()) as unknown;
     if (!body || typeof body !== "object") {
       return NextResponse.json({ error: "Invalid request payload." }, { status: 400 });
@@ -74,6 +81,10 @@ export async function PUT(request: Request) {
     if (!trimmedAgent) {
       return NextResponse.json({ error: "agentId is required." }, { status: 400 });
     }
+    const agentError = assertAgentAccess(scope, trimmedAgent);
+    if (agentError) return agentError;
+    const permError = assertPermission(scope, "manage");
+    if (permError) return permError;
     if (!trimmedTrash) {
       return NextResponse.json({ error: "trashDir is required." }, { status: 400 });
     }

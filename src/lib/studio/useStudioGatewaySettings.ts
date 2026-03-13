@@ -15,7 +15,7 @@ import {
   type StudioSettings,
   type StudioSettingsPatch,
 } from "@/lib/studio/settings";
-import type { StudioSettingsResponse } from "@/lib/studio/coordinator";
+import type { SharedMode, StudioSettingsResponse } from "@/lib/studio/coordinator";
 
 const DEFAULT_UPSTREAM_GATEWAY_URL =
   process.env.NEXT_PUBLIC_GATEWAY_URL || "ws://localhost:18789";
@@ -83,6 +83,7 @@ type StudioGatewaySettingsState = {
   hasUnsavedChanges: boolean;
   installContext: StudioInstallContext;
   domainApiModeEnabled: boolean;
+  sharedMode: SharedMode;
   error: string | null;
   testResult:
     | {
@@ -151,6 +152,7 @@ export const useStudioGatewaySettings = (
   const [testing, setTesting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [sharedMode, setSharedMode] = useState<SharedMode>({ active: false });
   const manualDisconnectRef = useRef(false);
   const didAutoConnectRef = useRef(false);
   const error = actionError ?? connectionError;
@@ -228,6 +230,9 @@ export const useStudioGatewaySettings = (
       setLocalGatewayDefaults(normalizeLocalGatewayDefaults(envelope.localGatewayDefaults));
       setLocalGatewayDefaultsHasToken(Boolean(envelope.localGatewayDefaultsMeta?.hasToken));
       setInstallContext(envelope.installContext ?? defaultStudioInstallContext());
+      if (envelope.sharedMode) {
+        setSharedMode(envelope.sharedMode);
+      }
       if (options.resetDraft) {
         setDraftGatewayUrlState(nextUrl);
         setTokenState("");
@@ -458,6 +463,7 @@ export const useStudioGatewaySettings = (
       hasUnsavedChanges,
       installContext,
       domainApiModeEnabled,
+      sharedMode,
       error,
       testResult,
       saving,
@@ -490,6 +496,7 @@ export const useStudioGatewaySettings = (
       disconnecting,
       setGatewayUrl,
       setToken,
+      sharedMode,
       status,
       statusReason,
       testConnection,

@@ -8,6 +8,7 @@ import {
   AgentBrainPanel,
   AgentSettingsPanel,
 } from "@/features/agents/components/AgentInspectPanels";
+import AgentSharePanel from "@/features/agents/components/AgentSharePanel";
 import { FleetSidebar } from "@/features/agents/components/FleetSidebar";
 import { HeaderBar } from "@/features/agents/components/HeaderBar";
 import { ConnectionPanel } from "@/features/agents/components/ConnectionPanel";
@@ -238,7 +239,10 @@ const AgentStudioPage = () => {
     setGatewayUrl,
     setToken,
     applyRuntimeStatusEvent,
+    sharedMode,
   } = useStudioGatewaySettings(settingsCoordinator);
+  const isSharedMode = sharedMode.active;
+  const sharedAgentId = sharedMode.active ? sharedMode.agentId : null;
   const gatewayStatus: GatewayStatus = status;
   const gatewayConnected = isGatewayConnected(gatewayStatus);
   const gatewayConnectionStatus: "disconnected" | "connecting" | "connected" = gatewayConnected
@@ -930,6 +934,14 @@ const AgentStudioPage = () => {
     setCreateAgentModalOpen(true);
   }, [createAgentBlock, createAgentBusy, restartingMutationBlock]);
 
+  // In shared mode, auto-select the shared agent once agents are loaded
+  useEffect(() => {
+    if (!isSharedMode || !sharedAgentId || !agentsLoadedOnce) return;
+    const alreadySelected = state.selectedAgentId === sharedAgentId;
+    if (alreadySelected) return;
+    dispatch({ type: "selectAgent", agentId: sharedAgentId });
+  }, [isSharedMode, sharedAgentId, agentsLoadedOnce, state.selectedAgentId]);
+
   const persistAvatarSeed = useCallback(
     (agentId: string, avatarSeed: string) => {
       const resolvedAgentId = agentId.trim();
@@ -1387,7 +1399,7 @@ const AgentStudioPage = () => {
     );
   }
 
-  if (!coreConnected && !agentsLoadedOnce && didAttemptGatewayConnect) {
+  if (!isSharedMode && !coreConnected && !agentsLoadedOnce && didAttemptGatewayConnect) {
     return (
       <div className="relative min-h-dvh w-screen overflow-hidden bg-background">
         <div className="relative z-10 flex h-dvh flex-col">
@@ -1464,9 +1476,10 @@ const AgentStudioPage = () => {
         <HeaderBar
           status={gatewayStatus}
           onConnectionSettings={() => setShowConnectionPanel(true)}
+          isSharedMode={isSharedMode}
         />
         <div className="flex min-h-0 flex-1 flex-col gap-3 px-3 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3 md:px-5 md:pb-5 md:pt-3">
-          {connectionPanelVisible ? (
+          {connectionPanelVisible && !isSharedMode ? (
             <div className="fixed inset-0 z-[140]" data-testid="gateway-connection-overlay">
               <div
                 className="absolute inset-0 bg-transparent"
@@ -1544,7 +1557,8 @@ const AgentStudioPage = () => {
                       { id: "personality", label: "Behavior" },
                       { id: "capabilities", label: "Capabilities" },
                       { id: "automations", label: "Automations" },
-                      { id: "advanced", label: "Advanced" },
+                      ...(!isSharedMode ? [{ id: "advanced" as const, label: "Advanced" }] : []),
+                      ...(!isSharedMode ? [{ id: "sharing" as const, label: "Sharing" }] : []),
                     ] as const
                   ).map((entry) => {
                     const active = effectiveSettingsTab === entry.id;
@@ -1598,6 +1612,15 @@ const AgentStudioPage = () => {
                         selectedAgentId={inspectSidebarAgent.agentId}
                         onUnsavedChangesChange={setPersonalityHasUnsavedChanges}
                       />
+                    ) : effectiveSettingsTab === "sharing" ? (
+                      <div className="h-full overflow-y-auto px-6 py-6">
+                        <div className="mx-auto w-full max-w-[920px]">
+                          <AgentSharePanel
+                            agent={inspectSidebarAgent}
+                            onClose={handleBackToChat}
+                          />
+                        </div>
+                      </div>
                     ) : (
                       <div className="h-full overflow-y-auto px-6 py-6">
                         <div className="mx-auto w-full max-w-[920px]">
@@ -1678,7 +1701,7 @@ const AgentStudioPage = () => {
                 </div>
               </div>
               <div
-                className={`${mobilePane === "fleet" ? "block" : "hidden"} min-h-0 xl:block xl:min-h-0`}
+                className={`${mobilePane === "fleet" ? "block" : "hidden"} min-h-0 xl:block xl:min-h-0 ${isSharedMode ? "!hidden" : ""}`}
               >
                 <FleetSidebar
                   agents={filteredAgents}
@@ -1766,7 +1789,7 @@ const AgentStudioPage = () => {
           )}
         </div>
       </div>
-      {createAgentModalOpen ? (
+      {createAgentModalOpen && !isSharedMode ? (
         <AgentCreateModal
           open={createAgentModalOpen}
           suggestedName={suggestedCreateAgentName}

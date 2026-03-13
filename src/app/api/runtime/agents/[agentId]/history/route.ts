@@ -13,6 +13,7 @@ import {
   clampGatewayChatHistoryLimit,
   GATEWAY_CHAT_HISTORY_MAX_LIMIT,
 } from "@/lib/gateway/chatHistoryLimits";
+import { getRequestScope, assertAgentAccess } from "@/lib/controlplane/scope";
 
 export const runtime = "nodejs";
 
@@ -466,6 +467,10 @@ export async function GET(
   if (!normalizedAgentId) {
     return NextResponse.json({ error: "agentId is required." }, { status: 400 });
   }
+
+  const scope = getRequestScope(request);
+  const accessError = assertAgentAccess(scope, normalizedAgentId);
+  if (accessError) return accessError;
 
   if (bootstrap.kind === "runtime-init-failed") {
     return NextResponse.json(

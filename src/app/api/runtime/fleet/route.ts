@@ -8,6 +8,7 @@ import { serializeRuntimeInitFailure } from "@/lib/controlplane/runtime-init-err
 import { ControlPlaneGatewayError } from "@/lib/controlplane/openclaw-adapter";
 import { bootstrapDomainRuntime } from "@/lib/controlplane/runtime-route-bootstrap";
 import { loadStudioSettings } from "@/lib/studio/settings-store";
+import { getRequestScope, isOwner } from "@/lib/controlplane/scope";
 
 export const runtime = "nodejs";
 
@@ -201,6 +202,34 @@ export async function POST(request: Request) {
       isDisconnectLikeError: () => false,
       logError: (message, error) => console.error(message, error),
     });
+
+    // Apply scope filtering for shared users
+    const scope = getRequestScope(request);
+    if (!isOwner(scope) && scope.role === "shared") {
+      const scopedAgentId = scope.agentId.trim().toLowerCase();
+      if (result.seeds) {
+        result.seeds = result.seeds.filter(
+          (s: { agentId: string }) => s.agentId.trim().toLowerCase() === scopedAgentId
+        );
+      }
+      if (result.sessionCreatedAgentIds) {
+        result.sessionCreatedAgentIds = result.sessionCreatedAgentIds.filter(
+          (id: string) => id.trim().toLowerCase() === scopedAgentId
+        );
+      }
+      if (result.sessionSettingsSyncedAgentIds) {
+        result.sessionSettingsSyncedAgentIds = result.sessionSettingsSyncedAgentIds.filter(
+          (id: string) => id.trim().toLowerCase() === scopedAgentId
+        );
+      }
+      if (result.summaryPatches) {
+        result.summaryPatches = result.summaryPatches.filter(
+          (p: { agentId: string }) => p.agentId.trim().toLowerCase() === scopedAgentId
+        );
+      }
+      result.suggestedSelectedAgentId = scopedAgentId;
+    }
+
     return NextResponse.json({ enabled: true, result });
   } catch (err) {
     if (isMissingScopeGatewayError(err)) {

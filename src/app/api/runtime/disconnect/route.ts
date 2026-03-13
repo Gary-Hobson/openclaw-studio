@@ -3,10 +3,17 @@ import { NextResponse } from "next/server";
 import { deriveRuntimeFreshness } from "@/lib/controlplane/degraded-read";
 import { peekControlPlaneRuntime } from "@/lib/controlplane/runtime";
 import { applyStudioSettingsPatch } from "@/lib/studio/settings-store";
+import { getRequestScope, assertOwnerAccess } from "@/lib/controlplane/scope";
 
 export const runtime = "nodejs";
 
-export async function POST() {
+export async function POST(request?: Request) {
+  if (request) {
+    const scope = getRequestScope(request);
+    const ownerError = assertOwnerAccess(scope);
+    if (ownerError) return ownerError;
+  }
+
   try {
     applyStudioSettingsPatch({ gatewayAutoStart: false });
     const controlPlane = peekControlPlaneRuntime();
